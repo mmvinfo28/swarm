@@ -197,7 +197,21 @@ Best setup: WebSocket for messages + git for state (tasks, agents, hierarchy).
 
 ## File Locations
 
-All swarm operations use the lib/ modules:
+The lib/ modules are bundled with this skill. To use them, resolve paths relative to this SKILL.md file's directory:
+
+```javascript
+const path = require('path');
+const skillDir = 'SKILL_BASE_DIR'; // replaced at runtime with actual skill base directory
+const libDir = path.join(skillDir, 'lib');
+const yaml = require(path.join(libDir, 'yaml'));
+const agentRegistry = require(path.join(libDir, 'agent-registry'));
+const taskManager = require(path.join(libDir, 'task-manager'));
+// etc.
+```
+
+**IMPORTANT:** The "Base directory for this skill:" line at the top of the skill output tells you the actual path. Use THAT path as `skillDir`.
+
+Available modules:
 - `lib/yaml.js` — YAML parse/serialize
 - `lib/git-sync.js` — git operations
 - `lib/agent-registry.js` — agent CRUD + health
@@ -206,10 +220,10 @@ All swarm operations use the lib/ modules:
 - `lib/hierarchy.js` — team structure
 - `lib/conflict-resolver.js` — race resolution
 - `lib/agent-loop.js` — autonomous loop + escalation
-- `lib/realtime.js` — WebSocket server/client
+- `lib/realtime.js` — WebSocket server/client (zero deps)
 - `lib/realtime-message-bus.js` — WS message bus wrapper
 
-Use `require()` with path relative to plugin root to call these modules.
+For `/swarm server`: run `node {skillDir}/server/index.js` or `node {skillDir}/lib/realtime.js`
 
 ## Boundaries
 
