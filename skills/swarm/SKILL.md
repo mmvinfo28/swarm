@@ -32,7 +32,7 @@ Your actions affect the whole team. Coordinate, don't duplicate work.
 | `/swarm modify config <field> <value>` | Modify swarm config. Fields: sync_interval, transport, max_tasks_per_agent. |
 | `/swarm escalate <message>` | Escalate a decision to the human user. |
 | `/swarm resolve <escalation-id> <decision>` | Human resolves an escalation. |
-| `/swarm dashboard` | Launch TUI dashboard (node dashboard/index.js). |
+| `/swarm dashboard` | Launch TUI dashboard in a NEW terminal window. **Must use `Start-Process` (Windows) or open new terminal.** Dashboard is a blessed TUI that takes over the terminal — it CANNOT run inline in chat. |
 | `/swarm server [port]` | Start WebSocket relay server for real-time messaging. |
 
 ## Modify
@@ -224,6 +224,23 @@ Available modules:
 - `lib/realtime-message-bus.js` — WS message bus wrapper
 
 For `/swarm server`: run `node {skillDir}/server/index.js` or `node {skillDir}/lib/realtime.js`
+
+## Dashboard
+
+**CRITICAL:** The dashboard is a blessed TUI app. It CANNOT run inline. It MUST launch in a separate terminal window.
+
+On Windows:
+```powershell
+Start-Process powershell -ArgumentList '-NoExit', '-Command', "node `"{skillDir}/dashboard/index.js`" `"{swarmRoot}`""
+```
+
+On Mac/Linux:
+```bash
+open -a Terminal "node {skillDir}/dashboard/index.js {swarmRoot}" &
+```
+
+Do NOT try to render dashboard output inline. Do NOT build ASCII art. Just launch the command above.
+After launching, tell the user: "Dashboard opened in new terminal window. Press q to quit."
 
 ## Boundaries
 
