@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "swarm",
+  "description": "Multi-agent orchestration — AI teams that collaborate, communicate, and coordinate.",
+  "owner": {
+    "name": "swarm-team"
+  },
+  "plugins": [
+    {
+      "name": "swarm",
+      "description": "Enables multiple AI agents (Claude Code, Codex, Gemini) to work together on shared codebases. Features: task routing, capability matching, credit failover, escalation to humans, real-time WebSocket messaging, conflict-free git state.",
+      "source": "./",
+      "category": "productivity",
+      "author": {
+        "name": "swarm-team"
+      },
+      "tags": ["multi-agent", "orchestration", "collaboration", "team", "hackathon"],
+      "skills": ["skills/swarm"],
+      "keywords": ["swarm", "multi-agent", "team", "orchestration", "collaboration", "codex", "gemini"]
+    }
+  ]
+}

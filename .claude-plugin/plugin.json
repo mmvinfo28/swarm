@@ -1,0 +1,33 @@
+{
+  "name": "swarm",
+  "description": "Multi-agent orchestration for AI teams. Enables Claude Code, Codex, and Gemini agents to collaborate on shared codebases via git + WebSocket.",
+  "author": {
+    "name": "swarm-team"
+  },
+  "version": "0.1.0",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/swarm-init.js\"",
+            "timeout": 10000,
+            "statusMessage": "Checking swarm status..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/swarm-sync.js\"",
+            "timeout": 15000
+          }
+        ]
+      }
+    ]
+  }
+}
