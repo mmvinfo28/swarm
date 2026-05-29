@@ -27,10 +27,52 @@ Your actions affect the whole team. Coordinate, don't duplicate work.
 | `/swarm broadcast "text"` | Send message to all agents. |
 | `/swarm lead [agent-name]` | Set team lead. Lead manages hierarchy and task distribution. |
 | `/swarm split <task-id> "sub1" "sub2" ...` | Split task into subtasks. |
+| `/swarm modify task <id> <field> <value>` | Modify a task. Fields: title, description, priority, tags, status. |
+| `/swarm modify agent <name> <field> <value>` | Modify an agent. Fields: capabilities, role, status, name. |
+| `/swarm modify config <field> <value>` | Modify swarm config. Fields: sync_interval, transport, max_tasks_per_agent. |
 | `/swarm escalate <message>` | Escalate a decision to the human user. |
 | `/swarm resolve <escalation-id> <decision>` | Human resolves an escalation. |
 | `/swarm dashboard` | Launch TUI dashboard (node dashboard/index.js). |
 | `/swarm server [port]` | Start WebSocket relay server for real-time messaging. |
+
+## Modify
+
+When user runs `/swarm modify`:
+
+### Modify a task
+```
+/swarm modify task <task-id> priority critical
+/swarm modify task <task-id> title "New title here"
+/swarm modify task <task-id> tags coding,security,backend
+/swarm modify task <task-id> status open
+/swarm modify task <task-id> description "Updated description"
+```
+
+Read the task YAML file, update the specified field, write back. Always update `updated_at` timestamp.
+
+### Modify an agent
+```
+/swarm modify agent <agent-name> capabilities coding,testing,devops
+/swarm modify agent <agent-name> role developer
+/swarm modify agent <agent-name> status idle
+/swarm modify agent <agent-name> name "New-Name"
+```
+
+Find agent by name, update field in their YAML file. Valid roles: lead, developer, reviewer, tester, architect.
+
+### Modify config
+```
+/swarm modify config sync_interval 30
+/swarm modify config transport hybrid
+/swarm modify config max_tasks_per_agent 5
+```
+
+Update `.swarm/config.yaml` directly. Show confirmation of what changed.
+
+### After any modify
+1. Show the updated entity (task/agent/config) to the user
+2. Git add + commit with message `swarm: modify <what> <field>=<value>`
+3. Do NOT auto-push unless user asks
 
 ## Initialization
 
