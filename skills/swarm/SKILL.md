@@ -32,8 +32,10 @@ Your actions affect the whole team. Coordinate, don't duplicate work.
 | `/swarm modify config <field> <value>` | Modify swarm config. Fields: sync_interval, transport, max_tasks_per_agent. |
 | `/swarm escalate <message>` | Escalate a decision to the human user. |
 | `/swarm resolve <escalation-id> <decision>` | Human resolves an escalation. |
-| `/swarm dashboard` | Launch TUI dashboard in a NEW terminal window. **Must use `Start-Process` (Windows) or open new terminal.** Dashboard is a blessed TUI that takes over the terminal — it CANNOT run inline in chat. |
+| `/swarm dashboard` | Launch HTML dashboard in browser. Runs a local HTTP server, opens `http://localhost:7379`. Preferred over TUI — no terminal blocking. |
+| `/swarm dashboard-tui` | Launch terminal (blessed) dashboard in a NEW terminal window. **Must use `Start-Process` (Windows) or open new terminal.** TUI takes over the terminal — CANNOT run inline in chat. |
 | `/swarm server [port]` | Start WebSocket relay server for real-time messaging. |
+| `/swarm start` | Start full stack (WS server + HTML dashboard) with single command. |
 
 ## Modify
 
@@ -102,6 +104,7 @@ When user runs `/swarm init`:
 3. Register this agent automatically.
 4. Initialize hierarchy with this agent as lead.
 5. Git add + commit `.swarm/`.
+6. After init, offer to start the stack: "Run `node {skillDir}/start.js` to start the WS server + HTML dashboard."
 
 ## Behavior Rules
 
@@ -223,11 +226,36 @@ Available modules:
 - `lib/realtime.js` — WebSocket server/client (zero deps)
 - `lib/realtime-message-bus.js` — WS message bus wrapper
 
-For `/swarm server`: run `node {skillDir}/server/index.js` or `node {skillDir}/lib/realtime.js`
+For `/swarm server`: run `node {skillDir}/lib/server.js [port]`
 
 ## Dashboard
 
-**CRITICAL:** The dashboard is a blessed TUI app. It CANNOT run inline. It MUST launch in a separate terminal window.
+### HTML Dashboard (preferred — no terminal blocking)
+
+Run the HTTP server, then open the URL in any browser:
+
+```bash
+node {skillDir}/dashboard/web.js [port] [swarmRoot]
+# default port: 7379
+# opens: http://localhost:7379
+```
+
+Or use the full-stack launcher:
+```bash
+node {skillDir}/start.js [swarmRoot]
+# starts WS relay + HTML dashboard together
+# WS:  ws://localhost:9377
+# Dash: http://localhost:7379
+```
+
+For `/swarm dashboard`: run `node {skillDir}/dashboard/web.js [port] {swarmRoot}` then tell user:
+"Dashboard running at http://localhost:7379 — open in browser. Auto-refreshes every 3s."
+
+For `/swarm start`: run `node {skillDir}/start.js {swarmRoot}` then tell user the WS and dashboard URLs.
+
+### TUI Dashboard (legacy — blocks terminal)
+
+**CRITICAL:** Must launch in a SEPARATE terminal window. Cannot run inline.
 
 On Windows:
 ```powershell
@@ -236,11 +264,43 @@ Start-Process powershell -ArgumentList '-NoExit', '-Command', "node `"{skillDir}
 
 On Mac/Linux:
 ```bash
-open -a Terminal "node {skillDir}/dashboard/index.js {swarmRoot}" &
+node {skillDir}/dashboard/index.js {swarmRoot} &
 ```
 
-Do NOT try to render dashboard output inline. Do NOT build ASCII art. Just launch the command above.
-After launching, tell the user: "Dashboard opened in new terminal window. Press q to quit."
+After launching: "TUI dashboard opened in new terminal. Press q to quit."
+
+## Task Delegation and Splitting
+
+When a user gives a complex task that should be split across agents:
+
+### Step 1 — Split the task
+```
+/swarm split <task-id> "Subtask A" "Subtask B" "Subtask C"
+```
+- Parent task becomes `split` status
+- Each subtask is created as `open` with same priority and tags as parent
+- Subtasks get `parent_task` field pointing to parent
+
+### Step 2 — Assign or let agents claim
+Option A (manual): `/swarm assign <subtask-id> <agent-name>`
+Option B (automatic): Agents see open subtasks on next sync and claim matching ones
+
+### Step 3 — Track completion
+Use `/swarm status` to see subtask progress. All subtasks done = parent work complete.
+
+### For LLM adapters (Codex/Gemini)
+These agents use action markers. When a delegated task arrives:
+- Agent sees it as `assigned` in their active tasks list
+- Agent must produce **real output** — actual code, real analysis, concrete implementation
+- Agent marks done: `##SWARM:DONE:task-uuid:actual result here##`
+- Agent can split further: `##SWARM:SPLIT:task-uuid:Sub 1|Sub 2##`
+- Agent can delegate to specialist: `##SWARM:DELEGATE:task-uuid:agent-uuid##`
+
+### Working on tasks (important)
+When an LLM agent claims or is assigned a task:
+1. The LLM is asked to produce the actual work output
+2. The result in `##SWARM:DONE##` must be real — code, analysis, findings
+3. Never use placeholder text like "I did the task" — write the actual deliverable
 
 ## Boundaries
 

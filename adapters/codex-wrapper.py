@@ -3,13 +3,23 @@
 Swarm Adapter — OpenAI Codex / GPT
 
 Wraps OpenAI API to participate in a swarm team.
-Loop: pull → read state → format prompt → call API → parse actions → write state → push
+Loop: pull -> read state -> format prompt -> call API -> parse actions -> write state -> push
 
 Requirements: OPENAI_API_KEY env var (or CODEX_API_KEY)
 Dependencies: Python 3.8+ stdlib only (uses urllib, no pip packages)
 
 Usage:
   python codex-wrapper.py [--swarm-root /path/to/repo] [--name "Codex-Bob"] [--capabilities backend,python]
+
+Available action markers (put on their own line in LLM response):
+  ##SWARM:CLAIM:task-uuid##                     — claim an open task
+  ##SWARM:DONE:task-uuid:result text##          — mark your task complete with result
+  ##SWARM:CREATE:title:priority:tag1,tag2##     — create a new task (priority: critical/high/medium/low)
+  ##SWARM:SPLIT:task-uuid:Sub 1|Sub 2|Sub 3##  — split a task into named subtasks
+  ##SWARM:DELEGATE:task-uuid:agent-uuid##       — reassign task to a specific agent
+  ##SWARM:MSG:agent-uuid:message text##         — send direct message to agent
+  ##SWARM:BROADCAST:message text##              — broadcast to all agents
+  ##SWARM:STATUS:working|idle##                 — update your status
 """
 
 import os
@@ -44,7 +54,6 @@ def parse_yaml(text):
     """Parse simple YAML (scalars, lists, flat maps). Enough for .swarm/ files."""
     result = {}
     current_key = None
-    current_list = None
 
     for line in text.split("\n"):
         stripped = line.strip()
@@ -58,7 +67,6 @@ def parse_yaml(text):
             key = key.strip()
             val = val.strip()
             current_key = key
-            current_list = None
             if val:
                 result[key] = _parse_value(val)
             else:
@@ -118,7 +126,11 @@ def serialize_yaml(obj, indent=0):
                 else:
                     lines.append(f"{prefix}{k}:")
                     for item in v:
-                        lines.append(f"{prefix}  - {_serialize_value(item)}")
+                        if isinstance(item, dict):
+                            lines.append(f"{prefix}  -")
+                            lines.append(serialize_yaml(item, indent + 2))
+                        else:
+                            lines.append(f"{prefix}  - {_serialize_value(item)}")
             elif isinstance(v, dict):
                 lines.append(f"{prefix}{k}:")
                 lines.append(serialize_yaml(v, indent + 1))
@@ -135,8 +147,9 @@ def _serialize_value(val):
     if isinstance(val, (int, float)):
         return str(val)
     if isinstance(val, str):
-        if any(c in val for c in ":{}[]#,&*?|>!%@`\"'"):
-            return f'"{val}"'
+        if any(c in val for c in ':{}[]#,&*?|>!%@`"\'\n'):
+            escaped = val.replace('\\', '\\\\').replace('"', '\\"')
+            return f'"{escaped}"'
         return val
     return str(val)
 
@@ -162,18 +175,53 @@ def git_push(msg="swarm: codex sync"):
     git("add .swarm")
     diff = git("diff --cached --name-only -- .swarm")
     if diff:
-        git(f'commit -m "{msg}"')
+        safe_msg = msg.replace('"', '\\"')
+        git(f'commit -m "{safe_msg}"')
         git("push")
+
+
+# --- Directory bootstrapping ---
+
+def ensure_swarm_dirs():
+    """Create all required .swarm/ directories and files if missing."""
+    base = os.path.join(SWARM_ROOT, ".swarm")
+    for d in ["agents", "tasks", "claims", "messages", "escalations"]:
+        os.makedirs(os.path.join(base, d), exist_ok=True)
+
+    # hierarchy.yaml — create if missing
+    hierarchy_file = os.path.join(base, "hierarchy.yaml")
+    if not os.path.exists(hierarchy_file):
+        with open(hierarchy_file, "w") as f:
+            f.write(serialize_yaml({
+                "lead": None,
+                "roles": {},
+                "sub_teams": [],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }) + "\n")
+
+    # config.yaml — create if missing
+    config_file = os.path.join(base, "config.yaml")
+    if not os.path.exists(config_file):
+        repo_name = os.path.basename(SWARM_ROOT)
+        with open(config_file, "w") as f:
+            f.write(serialize_yaml({
+                "project": repo_name,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "transport": "git",
+                "sync_interval": 15,
+                "max_tasks_per_agent": 3,
+            }) + "\n")
 
 
 # --- Agent registration ---
 
 def get_agent_id():
-    if os.path.exists(AGENT_ID_FILE):
-        return open(AGENT_ID_FILE).read().strip()
+    id_file = os.path.join(SWARM_ROOT, ".swarm", "agents", ".codex-agent-id")
+    if os.path.exists(id_file):
+        return open(id_file).read().strip()
     agent_id = str(uuid.uuid4())
-    os.makedirs(os.path.dirname(AGENT_ID_FILE), exist_ok=True)
-    with open(AGENT_ID_FILE, "w") as f:
+    os.makedirs(os.path.dirname(id_file), exist_ok=True)
+    with open(id_file, "w") as f:
         f.write(agent_id)
     return agent_id
 
@@ -192,7 +240,6 @@ def register_agent(agent_id):
         "last_seen": now,
         "joined_at": now,
     }
-    os.makedirs(os.path.dirname(agent_file), exist_ok=True)
     with open(agent_file, "w") as f:
         f.write(serialize_yaml(agent) + "\n")
     return agent
@@ -218,42 +265,106 @@ def read_swarm_state():
     if os.path.isdir(agents_dir):
         for f in os.listdir(agents_dir):
             if f.startswith("agent-") and f.endswith(".yaml"):
-                state["agents"].append(parse_yaml(open(os.path.join(agents_dir, f)).read()))
+                try:
+                    state["agents"].append(parse_yaml(open(os.path.join(agents_dir, f)).read()))
+                except Exception:
+                    pass
 
     tasks_dir = os.path.join(SWARM_ROOT, ".swarm", "tasks")
     if os.path.isdir(tasks_dir):
         for f in os.listdir(tasks_dir):
             if f.startswith("task-") and f.endswith(".yaml"):
-                state["tasks"].append(parse_yaml(open(os.path.join(tasks_dir, f)).read()))
+                try:
+                    state["tasks"].append(parse_yaml(open(os.path.join(tasks_dir, f)).read()))
+                except Exception:
+                    pass
 
     msgs_dir = os.path.join(SWARM_ROOT, ".swarm", "messages")
     if os.path.isdir(msgs_dir):
         files = sorted([f for f in os.listdir(msgs_dir) if f.endswith(".yaml")])[-20:]
         for f in files:
-            state["messages"].append(parse_yaml(open(os.path.join(msgs_dir, f)).read()))
+            try:
+                state["messages"].append(parse_yaml(open(os.path.join(msgs_dir, f)).read()))
+            except Exception:
+                pass
 
     esc_dir = os.path.join(SWARM_ROOT, ".swarm", "escalations")
     if os.path.isdir(esc_dir):
         for f in os.listdir(esc_dir):
             if f.startswith("esc-") and f.endswith(".yaml"):
-                esc = parse_yaml(open(os.path.join(esc_dir, f)).read())
-                if esc.get("status") == "pending":
-                    state["escalations"].append(esc)
+                try:
+                    esc = parse_yaml(open(os.path.join(esc_dir, f)).read())
+                    if esc.get("status") == "pending":
+                        state["escalations"].append(esc)
+                except Exception:
+                    pass
 
     return state
 
 
+def load_codex_guide():
+    """Load CODEX.md from adapters/ dir. Searches multiple candidate paths."""
+    candidates = []
+
+    # 1. Same dir as this script file (normal execution)
+    try:
+        candidates.append(os.path.dirname(os.path.abspath(__file__)))
+    except NameError:
+        pass
+
+    # 2. Dir of argv[0] — when exec()'d from gemini-wrapper, argv[0] is that wrapper
+    if sys.argv and sys.argv[0] not in ('-c', '') and sys.argv[0].endswith('.py'):
+        candidates.append(os.path.dirname(os.path.abspath(sys.argv[0])))
+
+    # 3. adapters/ relative to cwd (covers test/dev scenarios)
+    candidates.append(os.path.join(os.getcwd(), 'adapters'))
+
+    # 4. adapters/ sibling to SWARM_ROOT (plugin installed next to repo)
+    candidates.append(os.path.join(os.path.dirname(os.path.abspath(SWARM_ROOT)), 'adapters'))
+
+    for d in candidates:
+        guide_path = os.path.join(d, "CODEX.md")
+        if os.path.exists(guide_path):
+            try:
+                return open(guide_path, encoding="utf-8").read()
+            except Exception:
+                pass
+    return ""
+
+
+def discover_server_url():
+    """Check .swarm/.server-url written by lib/server.js."""
+    url_file = os.path.join(SWARM_ROOT, ".swarm", ".server-url")
+    if os.path.exists(url_file):
+        url = open(url_file).read().strip()
+        if url:
+            return url
+    return os.environ.get("SWARM_SERVER_URL", "")
+
+
 def format_state_as_prompt(state, agent_id):
     """Format swarm state as system prompt context for the LLM."""
+    guide = load_codex_guide()
+
     lines = []
-    lines.append("You are part of a multi-agent swarm team. Here is the current team state:")
-    lines.append("")
+    # Prepend the full guide so the LLM always has operational context
+    if guide:
+        lines.append(guide)
+        lines.append("")
+        lines.append("=" * 60)
+        lines.append("CURRENT SWARM STATE (live snapshot)")
+        lines.append("=" * 60)
+        lines.append("")
+    else:
+        lines.append("You are an AI agent in a multi-agent swarm team working on a shared codebase.")
+        lines.append("Read the current state carefully and take concrete action.")
+        lines.append("")
 
     # Agents
     lines.append("## Team Members")
     for a in state["agents"]:
         you = " (YOU)" if a.get("id") == agent_id else ""
-        lines.append(f"- {a.get('name', '?')} ({a.get('provider', '?')}) [{a.get('status', '?')}]{you}")
+        lines.append(f"- {a.get('name', '?')} id={a.get('id', '?')[:8]} ({a.get('provider', '?')}) [{a.get('status', '?')}]{you}")
         caps = a.get("capabilities", [])
         if caps:
             lines.append(f"  Capabilities: {', '.join(caps) if isinstance(caps, list) else caps}")
@@ -262,19 +373,25 @@ def format_state_as_prompt(state, agent_id):
     lines.append("")
     lines.append("## Tasks")
     open_tasks = [t for t in state["tasks"] if t.get("status") == "open"]
-    my_tasks = [t for t in state["tasks"] if t.get("assigned_to") == agent_id and t.get("status") != "done"]
+    my_tasks   = [t for t in state["tasks"] if t.get("assigned_to") == agent_id and t.get("status") not in ("done", "split")]
 
     if my_tasks:
-        lines.append("### Your Active Tasks")
+        lines.append("### YOUR Active Tasks (work on these NOW)")
         for t in my_tasks:
-            lines.append(f"- [{t.get('priority', 'medium')}] {t.get('title', '?')} (status: {t.get('status', '?')})")
+            lines.append(f"- id={t.get('id', '?')} [{t.get('priority', 'medium')}] {t.get('title', '?')} (status: {t.get('status', '?')})")
             if t.get("description"):
                 lines.append(f"  Description: {t['description']}")
+            if t.get("tags"):
+                lines.append(f"  Tags: {t['tags']}")
+            lines.append(f"  INSTRUCTION: Perform the actual work for this task. Write real output/code/analysis.")
+            lines.append(f"  When done, use: ##SWARM:DONE:{t['id']}:your complete result here##")
 
     if open_tasks:
         lines.append("### Open Tasks (available to claim)")
         for t in open_tasks:
-            lines.append(f"- [{t.get('priority', 'medium')}] {t.get('title', '?')} (tags: {t.get('tags', [])})")
+            lines.append(f"- id={t.get('id', '?')} [{t.get('priority', 'medium')}] {t.get('title', '?')} (tags: {t.get('tags', [])})")
+            if t.get("description"):
+                lines.append(f"  {t['description'][:120]}")
 
     # Recent messages
     recent = state["messages"][-10:]
@@ -283,26 +400,56 @@ def format_state_as_prompt(state, agent_id):
         lines.append("## Recent Messages")
         agent_names = {a.get("id"): a.get("name", "?") for a in state["agents"]}
         for m in recent:
-            frm = agent_names.get(m.get("from"), m.get("from", "?")[:8])
-            lines.append(f"- [{frm}]: {m.get('content', '')}")
+            frm = agent_names.get(m.get("from"), (m.get("from") or "?")[:8])
+            to  = m.get("to", "?")
+            to  = "ALL" if to == "broadcast" else agent_names.get(to, to[:8] if to else "?")
+            lines.append(f"- [{frm} -> {to}]: {m.get('content', '')}")
 
     # Escalations
     if state["escalations"]:
         lines.append("")
-        lines.append("## Pending Escalations (need human decision)")
+        lines.append("## Pending Escalations (need human decision — do NOT auto-resolve)")
         for e in state["escalations"]:
             lines.append(f"- [{e.get('severity', '?')}] {e.get('message_content', '?')}")
 
     lines.append("")
-    lines.append("## Available Actions")
-    lines.append("Respond with action markers on separate lines:")
-    lines.append("  ##SWARM:CLAIM:task-uuid## — claim a task")
-    lines.append("  ##SWARM:DONE:task-uuid:result text## — complete a task")
-    lines.append("  ##SWARM:MSG:agent-uuid:message text## — send message to agent")
-    lines.append("  ##SWARM:BROADCAST:message text## — broadcast to team")
-    lines.append("  ##SWARM:STATUS:working|idle## — update your status")
+    lines.append("## How to take action")
+    lines.append("Put action markers on their own lines at the END of your response.")
+    lines.append("You can include multiple action lines.")
     lines.append("")
-    lines.append("You can include multiple actions. Write your analysis/response first, then actions at the end.")
+    lines.append("### Task actions")
+    lines.append("  ##SWARM:CLAIM:task-uuid##")
+    lines.append("    Claim an open task. Replace task-uuid with the full id from the task list above.")
+    lines.append("")
+    lines.append("  ##SWARM:DONE:task-uuid:result##")
+    lines.append("    Mark your task complete. RESULT must be the ACTUAL output — code, analysis,")
+    lines.append("    findings, implementation notes. Do not use placeholder text.")
+    lines.append("    Example: ##SWARM:DONE:abc-123:Implemented login form in src/LoginForm.jsx. Added")
+    lines.append("    email/password fields, validation, and submit handler calling POST /api/auth/login.##")
+    lines.append("")
+    lines.append("  ##SWARM:CREATE:title:priority:tags##")
+    lines.append("    Create a new task. Priority: critical/high/medium/low. Tags: comma-separated.")
+    lines.append("    Example: ##SWARM:CREATE:Write unit tests for auth module:high:testing,auth##")
+    lines.append("")
+    lines.append("  ##SWARM:SPLIT:task-uuid:Subtask A title|Subtask B title|Subtask C title##")
+    lines.append("    Split a large task into smaller subtasks (separate titles with |).")
+    lines.append("    The parent task becomes 'split' status; subtasks are created as open.")
+    lines.append("    Example: ##SWARM:SPLIT:abc-123:Design DB schema|Build API endpoints|Write tests##")
+    lines.append("")
+    lines.append("  ##SWARM:DELEGATE:task-uuid:agent-uuid##")
+    lines.append("    Reassign a task to another agent (use their full id from Team Members above).")
+    lines.append("")
+    lines.append("### Communication")
+    lines.append("  ##SWARM:MSG:agent-uuid:message##   — direct message to agent")
+    lines.append("  ##SWARM:BROADCAST:message##         — message to all agents")
+    lines.append("  ##SWARM:STATUS:working|idle##       — update your status")
+    lines.append("")
+    lines.append("### Rules")
+    lines.append("- Only claim tasks that match your capabilities.")
+    lines.append("- When working on a task, produce REAL output — actual code, real analysis, concrete results.")
+    lines.append("- Split large tasks before claiming if they are too broad.")
+    lines.append("- Delegate if another agent is better suited.")
+    lines.append("- If a task is ambiguous, broadcast a question before claiming.")
 
     return "\n".join(lines)
 
@@ -313,21 +460,50 @@ def parse_actions(response):
     actions = []
     for line in response.split("\n"):
         line = line.strip()
+
         if line.startswith("##SWARM:CLAIM:") and line.endswith("##"):
-            task_id = line[len("##SWARM:CLAIM:"):-2]
+            task_id = line[len("##SWARM:CLAIM:"):-2].strip()
             actions.append({"type": "claim", "task_id": task_id})
+
         elif line.startswith("##SWARM:DONE:") and line.endswith("##"):
-            parts = line[len("##SWARM:DONE:"):-2].split(":", 1)
-            actions.append({"type": "done", "task_id": parts[0], "result": parts[1] if len(parts) > 1 else ""})
+            rest = line[len("##SWARM:DONE:"):-2]
+            parts = rest.split(":", 1)
+            actions.append({"type": "done", "task_id": parts[0].strip(), "result": parts[1].strip() if len(parts) > 1 else ""})
+
+        elif line.startswith("##SWARM:CREATE:") and line.endswith("##"):
+            rest = line[len("##SWARM:CREATE:"):-2]
+            parts = rest.split(":", 2)
+            title    = parts[0].strip() if len(parts) > 0 else "Untitled task"
+            priority = parts[1].strip() if len(parts) > 1 else "medium"
+            tags_raw = parts[2].strip() if len(parts) > 2 else ""
+            tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+            actions.append({"type": "create", "title": title, "priority": priority, "tags": tags})
+
+        elif line.startswith("##SWARM:SPLIT:") and line.endswith("##"):
+            rest = line[len("##SWARM:SPLIT:"):-2]
+            parts = rest.split(":", 1)
+            task_id   = parts[0].strip()
+            sub_titles = [s.strip() for s in parts[1].split("|") if s.strip()] if len(parts) > 1 else []
+            actions.append({"type": "split", "task_id": task_id, "subtasks": sub_titles})
+
+        elif line.startswith("##SWARM:DELEGATE:") and line.endswith("##"):
+            rest = line[len("##SWARM:DELEGATE:"):-2]
+            parts = rest.split(":", 1)
+            actions.append({"type": "delegate", "task_id": parts[0].strip(), "to_agent": parts[1].strip() if len(parts) > 1 else ""})
+
         elif line.startswith("##SWARM:MSG:") and line.endswith("##"):
-            parts = line[len("##SWARM:MSG:"):-2].split(":", 1)
-            actions.append({"type": "msg", "to": parts[0], "content": parts[1] if len(parts) > 1 else ""})
+            rest = line[len("##SWARM:MSG:"):-2]
+            parts = rest.split(":", 1)
+            actions.append({"type": "msg", "to": parts[0].strip(), "content": parts[1].strip() if len(parts) > 1 else ""})
+
         elif line.startswith("##SWARM:BROADCAST:") and line.endswith("##"):
-            content = line[len("##SWARM:BROADCAST:"):-2]
+            content = line[len("##SWARM:BROADCAST:"):-2].strip()
             actions.append({"type": "broadcast", "content": content})
+
         elif line.startswith("##SWARM:STATUS:") and line.endswith("##"):
-            status = line[len("##SWARM:STATUS:"):-2]
+            status = line[len("##SWARM:STATUS:"):-2].strip()
             actions.append({"type": "status", "status": status})
+
     return actions
 
 
@@ -336,39 +512,54 @@ def parse_actions(response):
 def apply_actions(actions, agent_id):
     for action in actions:
         try:
-            if action["type"] == "claim":
+            t = action["type"]
+            if t == "claim":
                 claim_task(agent_id, action["task_id"])
-            elif action["type"] == "done":
+            elif t == "done":
                 complete_task(agent_id, action["task_id"], action.get("result", ""))
-            elif action["type"] == "msg":
+            elif t == "create":
+                create_task(agent_id, action["title"], action.get("priority", "medium"), action.get("tags", []))
+            elif t == "split":
+                split_task(agent_id, action["task_id"], action.get("subtasks", []))
+            elif t == "delegate":
+                delegate_task(agent_id, action["task_id"], action.get("to_agent", ""))
+            elif t == "msg":
                 send_message(agent_id, action["to"], action.get("content", ""))
-            elif action["type"] == "broadcast":
+            elif t == "broadcast":
                 send_message(agent_id, "broadcast", action.get("content", ""))
-            elif action["type"] == "status":
+            elif t == "status":
                 update_status(agent_id, action["status"])
         except Exception as e:
-            print(f"  [!] Action failed: {action['type']} — {e}", file=sys.stderr)
+            print(f"  [!] Action failed: {action.get('type')} — {e}", file=sys.stderr)
 
 
 def claim_task(agent_id, task_id):
+    # 1. Create claim ticket (conflict-free — one file per agent)
     claims_dir = os.path.join(SWARM_ROOT, ".swarm", "claims")
     os.makedirs(claims_dir, exist_ok=True)
-    ts = datetime.now(timezone.utc).isoformat().replace(":", "-").replace(".", "-")
-    ticket = {"task_id": task_id, "agent_id": agent_id, "timestamp": datetime.now(timezone.utc).isoformat()}
+    now = datetime.now(timezone.utc).isoformat()
+    ts = now.replace(":", "-").replace(".", "-")
+    ticket = {"task_id": task_id, "agent_id": agent_id, "timestamp": now}
     fp = os.path.join(claims_dir, f"claim-{task_id}-{agent_id}-{ts}.yaml")
     with open(fp, "w") as f:
         f.write(serialize_yaml(ticket) + "\n")
 
-    # Update task file
+    # 2. Update task file (optimistic — check for conflicts on next pull)
     task_file = os.path.join(SWARM_ROOT, ".swarm", "tasks", f"task-{task_id}.yaml")
     if os.path.exists(task_file):
         task = parse_yaml(open(task_file).read())
+        if task.get("status") == "done":
+            print(f"  [!] Task {task_id[:8]} already done — skipping claim", file=sys.stderr)
+            return
         task["assigned_to"] = agent_id
         task["status"] = "in_progress"
         task["updated_at"] = datetime.now(timezone.utc).isoformat()
         with open(task_file, "w") as f:
             f.write(serialize_yaml(task) + "\n")
-    print(f"  [✓] Claimed task {task_id[:8]}")
+
+    # 3. Update agent status
+    update_status(agent_id, "working", current_task=task_id)
+    print(f"  [+] Claimed task {task_id[:8]}")
 
 
 def complete_task(agent_id, task_id, result):
@@ -380,36 +571,145 @@ def complete_task(agent_id, task_id, result):
         task["updated_at"] = datetime.now(timezone.utc).isoformat()
         with open(task_file, "w") as f:
             f.write(serialize_yaml(task) + "\n")
+
+    # Clean up claim tickets
+    claims_dir = os.path.join(SWARM_ROOT, ".swarm", "claims")
+    if os.path.isdir(claims_dir):
+        for f in os.listdir(claims_dir):
+            if f.startswith(f"claim-{task_id}-"):
+                try:
+                    os.unlink(os.path.join(claims_dir, f))
+                except Exception:
+                    pass
+
     update_status(agent_id, "idle")
-    print(f"  [✓] Completed task {task_id[:8]}")
+    print(f"  [+] Completed task {task_id[:8]}: {result[:80]}")
+
+
+def create_task(agent_id, title, priority="medium", tags=None):
+    task_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    task = {
+        "id": task_id,
+        "title": title,
+        "description": "",
+        "created_by": agent_id,
+        "assigned_to": None,
+        "status": "open",
+        "priority": priority if priority in ("critical", "high", "medium", "low") else "medium",
+        "tags": tags or [],
+        "dependencies": [],
+        "subtasks": [],
+        "parent_task": None,
+        "created_at": now,
+        "updated_at": now,
+        "result": None,
+        "files_changed": [],
+    }
+    tasks_dir = os.path.join(SWARM_ROOT, ".swarm", "tasks")
+    os.makedirs(tasks_dir, exist_ok=True)
+    with open(os.path.join(tasks_dir, f"task-{task_id}.yaml"), "w") as f:
+        f.write(serialize_yaml(task) + "\n")
+    print(f"  [+] Created task {task_id[:8]}: {title}")
+    return task_id
+
+
+def split_task(agent_id, parent_task_id, subtask_titles):
+    """Split a parent task into named subtasks."""
+    if not subtask_titles:
+        print(f"  [!] No subtask titles provided for split of {parent_task_id[:8]}", file=sys.stderr)
+        return
+
+    parent_file = os.path.join(SWARM_ROOT, ".swarm", "tasks", f"task-{parent_task_id}.yaml")
+    if not os.path.exists(parent_file):
+        print(f"  [!] Parent task {parent_task_id[:8]} not found", file=sys.stderr)
+        return
+
+    parent = parse_yaml(open(parent_file).read())
+    subtask_ids = []
+
+    for title in subtask_titles:
+        sub_id = create_task(
+            agent_id,
+            title,
+            priority=parent.get("priority", "medium"),
+            tags=parent.get("tags", []) if isinstance(parent.get("tags"), list) else [],
+        )
+        subtask_ids.append(sub_id)
+
+        # Set parent reference on subtask
+        sub_file = os.path.join(SWARM_ROOT, ".swarm", "tasks", f"task-{sub_id}.yaml")
+        if os.path.exists(sub_file):
+            sub = parse_yaml(open(sub_file).read())
+            sub["parent_task"] = parent_task_id
+            with open(sub_file, "w") as f:
+                f.write(serialize_yaml(sub) + "\n")
+
+    # Update parent
+    parent["status"] = "split"
+    parent["subtasks"] = subtask_ids
+    parent["updated_at"] = datetime.now(timezone.utc).isoformat()
+    with open(parent_file, "w") as f:
+        f.write(serialize_yaml(parent) + "\n")
+
+    send_message(agent_id, "broadcast",
+        f"Split task '{parent.get('title', parent_task_id[:8])}' into {len(subtask_ids)} subtasks: {', '.join(subtask_titles)}")
+    print(f"  [+] Split task {parent_task_id[:8]} into {len(subtask_ids)} subtasks")
+
+
+def delegate_task(from_agent, task_id, to_agent_id):
+    """Reassign a task to another agent."""
+    task_file = os.path.join(SWARM_ROOT, ".swarm", "tasks", f"task-{task_id}.yaml")
+    if not os.path.exists(task_file):
+        print(f"  [!] Task {task_id[:8]} not found", file=sys.stderr)
+        return
+
+    task = parse_yaml(open(task_file).read())
+    old_assignee = task.get("assigned_to")
+    task["assigned_to"] = to_agent_id
+    task["status"] = "assigned"
+    task["updated_at"] = datetime.now(timezone.utc).isoformat()
+    with open(task_file, "w") as f:
+        f.write(serialize_yaml(task) + "\n")
+
+    send_message(from_agent, to_agent_id,
+        f"Task '{task.get('title', task_id[:8])}' delegated to you. Please claim and work on it.")
+    print(f"  [+] Delegated task {task_id[:8]} to agent {to_agent_id[:8]}")
 
 
 def send_message(agent_id, to, content):
     msgs_dir = os.path.join(SWARM_ROOT, ".swarm", "messages")
     os.makedirs(msgs_dir, exist_ok=True)
-    ts = datetime.now(timezone.utc).isoformat().replace(":", "-").replace(".", "-")
+    now = datetime.now(timezone.utc).isoformat()
+    ts = now.replace(":", "-").replace(".", "-")
     msg = {
         "id": str(uuid.uuid4()),
         "from": agent_id,
         "to": to,
         "type": "chat",
         "content": content,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now,
     }
     fp = os.path.join(msgs_dir, f"{ts}-{agent_id[:8]}.yaml")
     with open(fp, "w") as f:
         f.write(serialize_yaml(msg) + "\n")
-    print(f"  [✓] Sent message to {to[:8] if to != 'broadcast' else 'all'}")
+    dest = "all" if to == "broadcast" else to[:8]
+    print(f"  [+] Sent message to {dest}")
 
 
-def update_status(agent_id, status):
+def update_status(agent_id, status, current_task=None):
     agent_file = os.path.join(SWARM_ROOT, ".swarm", "agents", f"agent-{agent_id}.yaml")
-    if os.path.exists(agent_file):
-        agent = parse_yaml(open(agent_file).read())
-        agent["status"] = status
-        agent["last_seen"] = datetime.now(timezone.utc).isoformat()
-        with open(agent_file, "w") as f:
-            f.write(serialize_yaml(agent) + "\n")
+    if not os.path.exists(agent_file):
+        return
+    agent = parse_yaml(open(agent_file).read())
+    agent["status"] = status
+    agent["last_seen"] = datetime.now(timezone.utc).isoformat()
+    if current_task is not None:
+        agent["current_task"] = current_task
+    elif status == "idle":
+        agent["current_task"] = None
+    with open(agent_file, "w") as f:
+        f.write(serialize_yaml(agent) + "\n")
 
 
 # --- OpenAI API call ---
@@ -424,8 +724,8 @@ def call_openai(system_prompt, user_msg):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_msg},
         ],
-        "max_tokens": 2048,
-        "temperature": 0.3,
+        "max_tokens": 4096,
+        "temperature": 0.2,
     }).encode("utf-8")
 
     req = urllib.request.Request(API_URL, data=payload, headers={
@@ -434,7 +734,7 @@ def call_openai(system_prompt, user_msg):
     })
 
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=90) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data["choices"][0]["message"]["content"]
     except urllib.error.HTTPError as e:
@@ -447,6 +747,8 @@ def call_openai(system_prompt, user_msg):
 # --- Main loop ---
 
 def main():
+    global SWARM_ROOT, AGENT_NAME, CAPABILITIES, AGENT_ID_FILE
+
     import argparse
     parser = argparse.ArgumentParser(description="Swarm Codex Adapter")
     parser.add_argument("--swarm-root", default=SWARM_ROOT)
@@ -456,23 +758,37 @@ def main():
     parser.add_argument("--once", action="store_true", help="Run single cycle then exit")
     args = parser.parse_args()
 
-    global SWARM_ROOT, AGENT_NAME, CAPABILITIES
     SWARM_ROOT = args.swarm_root
     AGENT_NAME = args.name
     CAPABILITIES = [c.strip() for c in args.capabilities.split(",") if c.strip()]
+    AGENT_ID_FILE = os.path.join(SWARM_ROOT, ".swarm", "agents", ".codex-agent-id")
 
     agent_id = get_agent_id()
+
+    # Auto-discover WebSocket server URL
+    server_url = discover_server_url()
+    if server_url:
+        os.environ["SWARM_SERVER_URL"] = server_url
+        print(f"[swarm] Server URL discovered: {server_url}")
+    else:
+        print(f"[swarm] No WS server found — git-only mode.")
+        print(f"[swarm] Start server with: node lib/server.js")
+
     print(f"[swarm] Codex adapter starting")
-    print(f"[swarm] Agent: {AGENT_NAME} ({agent_id[:8]})")
-    print(f"[swarm] Root: {SWARM_ROOT}")
-    print(f"[swarm] Capabilities: {CAPABILITIES}")
-    print(f"[swarm] Model: {API_MODEL}")
+    print(f"[swarm] Agent:  {AGENT_NAME} ({agent_id[:8]})")
+    print(f"[swarm] Root:   {SWARM_ROOT}")
+    print(f"[swarm] Caps:   {CAPABILITIES}")
+    print(f"[swarm] Model:  {API_MODEL}")
     print()
 
-    # Register
+    # Bootstrap dirs + register
     git_pull()
+    ensure_swarm_dirs()
     register_agent(agent_id)
     git_push(f"swarm: {agent_id[:8]} joined as {AGENT_NAME}")
+    print(f"[swarm] Registered and pushed. Starting main loop.")
+    print(f"[swarm] Context guide: {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'CODEX.md')}")
+    print()
 
     cycle = 0
     while True:
@@ -480,64 +796,76 @@ def main():
         print(f"[cycle {cycle}] Syncing...")
 
         try:
-            # Pull
             git_pull()
             heartbeat(agent_id)
 
-            # Read state
             state = read_swarm_state()
-            prompt = format_state_as_prompt(state, agent_id)
+            system_prompt = format_state_as_prompt(state, agent_id)
 
-            # Build user message
             my_tasks = [t for t in state["tasks"]
-                       if t.get("assigned_to") == agent_id and t.get("status") != "done"]
+                       if t.get("assigned_to") == agent_id and t.get("status") not in ("done", "split")]
             unread = [m for m in state["messages"][-10:]
-                     if m.get("to") == agent_id or m.get("to") == "broadcast"]
+                     if m.get("to") in (agent_id, "broadcast") and m.get("from") != agent_id]
+            open_tasks = [t for t in state["tasks"] if t.get("status") == "open"]
 
-            if my_tasks or unread:
-                user_msg = "Check your tasks and messages. Take appropriate action."
-                if my_tasks:
-                    user_msg += f" You have {len(my_tasks)} active task(s)."
-                if unread:
-                    user_msg += f" You have {len(unread)} recent message(s)."
-            else:
-                open_tasks = [t for t in state["tasks"] if t.get("status") == "open"]
-                if open_tasks:
-                    user_msg = f"There are {len(open_tasks)} open task(s). Consider claiming one that matches your capabilities."
+            if my_tasks:
+                task_names = ", ".join(f"'{t.get('title', '?')}'" for t in my_tasks[:3])
+                user_msg = (
+                    f"You have {len(my_tasks)} active task(s): {task_names}.\n"
+                    f"Work on them now. Produce real output and mark done with ##SWARM:DONE:id:result##.\n"
+                    f"If a task is too large, split it first with ##SWARM:SPLIT:id:part1|part2##."
+                )
+            elif unread:
+                user_msg = (
+                    f"You have {len(unread)} unread message(s). Review and respond if needed.\n"
+                    f"If there are open tasks matching your capabilities, consider claiming one."
+                )
+            elif open_tasks:
+                matching = [t for t in open_tasks
+                           if not t.get("tags") or
+                           any(c in (t.get("tags") or []) for c in CAPABILITIES)]
+                if matching:
+                    user_msg = (
+                        f"There are {len(matching)} open task(s) matching your capabilities. "
+                        f"Claim the most important one and start working on it."
+                    )
                 else:
-                    user_msg = "No pending work. Stand by."
+                    user_msg = (
+                        f"There are {len(open_tasks)} open task(s) but none match your capabilities exactly. "
+                        f"Claim one if you can still contribute, or stand by."
+                    )
+            else:
+                user_msg = "No pending work. Stand by or create tasks if you see work to be done."
 
-            # Call API
             print(f"  Calling {API_MODEL}...")
-            response = call_openai(prompt, user_msg)
-            print(f"  Response: {response[:100]}...")
+            response = call_openai(system_prompt, user_msg)
+            print(f"  Response ({len(response)} chars): {response[:120]}...")
 
-            # Parse and apply actions
             actions = parse_actions(response)
             if actions:
-                print(f"  Actions: {len(actions)}")
+                print(f"  Actions ({len(actions)}): {[a['type'] for a in actions]}")
                 apply_actions(actions, agent_id)
             else:
-                print("  No actions.")
+                print("  No actions taken.")
 
-            # Push
             git_push(f"swarm: {agent_id[:8]} cycle {cycle}")
 
         except RuntimeError as e:
             if "CREDITS_EXHAUSTED" in str(e):
-                print(f"  [!] Credits exhausted! Marking agent as down.")
+                print(f"  [!] Credits exhausted. Marking agent down.")
                 update_status(agent_id, "credits_exhausted")
                 send_message(agent_id, "broadcast",
-                    f"Agent {AGENT_NAME} ({PROVIDER}) out of credits. Tasks may need reassignment.")
+                    f"Agent {AGENT_NAME} ({PROVIDER}) out of credits. Tasks need reassignment.")
                 git_push(f"swarm: {agent_id[:8]} credits exhausted")
                 if args.once:
                     break
-                time.sleep(300)  # wait 5 min before retry
+                print("  Waiting 5 min before retry...")
+                time.sleep(300)
                 continue
             print(f"  [!] Error: {e}", file=sys.stderr)
 
         except Exception as e:
-            print(f"  [!] Error: {e}", file=sys.stderr)
+            print(f"  [!] Unexpected error: {e}", file=sys.stderr)
 
         if args.once:
             break
