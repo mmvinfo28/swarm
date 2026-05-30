@@ -1,0 +1,6 @@
+# Junction directories created by link-skill.ps1 — not real files
+lib
+dashboard
+adapters
+hooks
+server
