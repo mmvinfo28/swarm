@@ -226,7 +226,7 @@ Available modules:
 - `lib/realtime.js` — WebSocket server/client (zero deps)
 - `lib/realtime-message-bus.js` — WS message bus wrapper
 
-For `/swarm server`: run `node {skillDir}/lib/server.js [port]`
+For `/swarm server`: run `node {skillDir}/server.js [port]`
 
 ## Dashboard
 
@@ -235,7 +235,7 @@ For `/swarm server`: run `node {skillDir}/lib/server.js [port]`
 Run the HTTP server, then open the URL in any browser:
 
 ```bash
-node {skillDir}/dashboard/web.js [port] [swarmRoot]
+node {skillDir}/dashboard.js [port] [swarmRoot]
 # default port: 7379
 # opens: http://localhost:7379
 ```
@@ -248,7 +248,7 @@ node {skillDir}/start.js [swarmRoot]
 # Dash: http://localhost:7379
 ```
 
-For `/swarm dashboard`: run `node {skillDir}/dashboard/web.js [port] {swarmRoot}` then tell user:
+For `/swarm dashboard`: run `node {skillDir}/dashboard.js [port] {swarmRoot}` then tell user:
 "Dashboard running at http://localhost:7379 — open in browser. Auto-refreshes every 3s."
 
 For `/swarm start`: run `node {skillDir}/start.js {swarmRoot}` then tell user the WS and dashboard URLs.
@@ -264,7 +264,7 @@ Start-Process powershell -ArgumentList '-NoExit', '-Command', "node `"{skillDir}
 
 On Mac/Linux:
 ```bash
-node {skillDir}/dashboard/index.js {swarmRoot} &
+node {skillDir}/../../dashboard/index.js {swarmRoot} &
 ```
 
 After launching: "TUI dashboard opened in new terminal. Press q to quit."
