@@ -27,7 +27,8 @@ Your actions affect the whole team. Coordinate, don't duplicate work.
 | `/swarm broadcast "text"` | Send message to all agents. |
 | `/swarm lead [agent-name]` | Set team lead. Lead manages hierarchy and task distribution. |
 | `/swarm delegate` | Lead distributes all open tasks to best-matched agents and sends each a work prompt. Runs `node {skillDir}/lib/orchestrator-cli.js distribute {swarmRoot} {myAgentId}`. (Also happens automatically each turn when you are lead.) |
-| `/swarm agent codex\|gemini [capabilities]` | Launch a Codex/Gemini worker as a detached background process. Runs `node {skillDir}/lib/launch.js agent <provider> {swarmRoot} [caps]`. |
+| `/swarm agent codex\|gemini [capabilities]` | Launch a Codex/Gemini **API** worker (needs API key) as a detached background process. Runs `node {skillDir}/lib/launch.js agent <provider> {swarmRoot} [caps]`. |
+| `/swarm onboard [name] [capabilities]` | **No API key.** Print a ready-to-paste start command for a Codex CLI / Gemini CLI agent. They read `SWARM-AGENT.md` and drive the swarm via `lib/swarm-cli.js` on their own Pro/CLI plan. See "Onboard a CLI agent" below. |
 | `/swarm split <task-id> "sub1" "sub2" ...` | Split task into subtasks. |
 | `/swarm modify task <id> <field> <value>` | Modify a task. Fields: title, description, priority, tags, status. |
 | `/swarm modify agent <name> <field> <value>` | Modify an agent. Fields: capabilities, role, status, name. |
@@ -277,6 +278,36 @@ node {skillDir}/dashboard/index.js {swarmRoot} &
 ```
 
 After launching: "TUI dashboard opened in new terminal. Press q to quit."
+
+## Onboard a CLI agent (no API key — recommended)
+
+This is the easy, free way to add Codex/Gemini as workers: the user already has a
+Codex CLI or Gemini CLI (on their Pro/CLI plan). Instead of the API adapter, the CLI
+agent itself drives the swarm via `lib/swarm-cli.js`. No API key, no per-token cost.
+
+When the user runs `/swarm onboard [name] [caps]`, produce a ready-to-paste block.
+Fill in the **absolute** `{skillDir}` and `{swarmRoot}`:
+
+```
+Paste this into your Codex CLI / Gemini CLI session:
+─────────────────────────────────────────────
+Read "{skillDir}/SWARM-AGENT.md" and follow it to act as a swarm agent.
+
+Setup:
+  cd "{swarmRoot}"
+  export SWARM="{skillDir}/lib/swarm-cli.js"
+  node "$SWARM" join "{name or e.g. Codex-Bob}" {caps or e.g. backend,api}
+
+Then loop: `node "$SWARM" inbox` → `node "$SWARM" next` → `claim` → DO THE REAL WORK
+in the repo → `node "$SWARM" done <id> "<result>"`. Repeat until inbox/next are empty.
+─────────────────────────────────────────────
+```
+
+The agent reads `SWARM-AGENT.md` (full command reference) and operates autonomously.
+`swarm-cli.js` auto-detects the repo from `cd`, syncs git best-effort, and resolves the
+agent identity (saved on `join`). Everything is git-based, so it works with no server.
+
+Verify it joined: `/swarm status` (or `node {skillDir}/lib/swarm-cli.js status {swarmRoot}`).
 
 ## Task Delegation and Splitting
 
