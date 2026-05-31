@@ -122,7 +122,7 @@ function buildStatusSummary(swarmRoot) {
         if (!t) continue;
         taskStats.total++;
         if (t.status === 'open') taskStats.open++;
-        else if (t.status === 'in_progress') taskStats.in_progress++;
+        else if (t.status === 'in_progress' || t.status === 'assigned') taskStats.in_progress++;
         else if (t.status === 'done') taskStats.done++;
       }
     }

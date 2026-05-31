@@ -42,7 +42,23 @@ process.stdin.on('end', () => {
     // Build context for this turn
     const contextParts = [];
 
-    // Check unread messages
+    // If this agent is the lead, auto-distribute open tasks to best-matched agents
+    // (sends each assignee an actionable work prompt). Hands-off delegation.
+    try {
+      const orchestrator = require(path.join(__dirname, '..', 'lib', 'orchestrator'));
+      const hierarchy = require(path.join(__dirname, '..', 'lib', 'hierarchy'));
+      if (hierarchy.isLead(swarmRoot, agentId)) {
+        const res = orchestrator.distribute(swarmRoot, agentId);
+        if (res && res.assignments && res.assignments.length > 0) {
+          contextParts.push(
+            `📤 You (lead) auto-distributed ${res.assignments.length} task(s): ` +
+            res.assignments.map(a => `"${a.title}" → ${a.agentName}`).join(', ')
+          );
+        }
+      }
+    } catch (_) {}
+
+    // Check escalations
     try {
       const agentLoop = require(path.join(__dirname, '..', 'lib', 'agent-loop'));
       const pending = agentLoop.getPendingEscalations(swarmRoot, agentId);
@@ -51,6 +67,34 @@ process.stdin.on('end', () => {
         for (const esc of pending.slice(0, 3)) { // max 3 to avoid context bloat
           contextParts.push(agentLoop.formatEscalationForHuman(esc));
         }
+      }
+    } catch (_) {}
+
+    // Surface unread messages + task assignments addressed to this agent.
+    // Uses a dedicated cursor flag so it doesn't clobber agent-loop's cursor.
+    try {
+      const messageBus = require(path.join(__dirname, '..', 'lib', 'message-bus'));
+      const { readFlag, safeWriteFlag, claudeDir } = require('./swarm-config');
+      const cursorPath = path.join(claudeDir, '.swarm-msg-cursor');
+      const since = readFlag(cursorPath);
+      const unread = messageBus.getUnread(swarmRoot, agentId, since);
+      if (unread.length > 0) {
+        const assignments = unread.filter(m => m.type === 'task_assignment');
+        const chats = unread.filter(m => m.type !== 'task_assignment');
+        if (assignments.length > 0) {
+          contextParts.push(
+            `📨 ${assignments.length} task assignment(s) for you — claim and do the work:\n` +
+            assignments.slice(0, 3).map(m => `  • ${(m.content || '').slice(0, 160)}`).join('\n')
+          );
+        }
+        if (chats.length > 0) {
+          contextParts.push(
+            `💬 ${chats.length} new message(s):\n` +
+            chats.slice(0, 5).map(m => `  • ${(m.content || '').slice(0, 120)}`).join('\n')
+          );
+        }
+        const latest = unread[unread.length - 1];
+        if (latest && latest.timestamp) safeWriteFlag(cursorPath, latest.timestamp);
       }
     } catch (_) {}
 

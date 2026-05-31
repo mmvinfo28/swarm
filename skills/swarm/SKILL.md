@@ -26,16 +26,20 @@ Your actions affect the whole team. Coordinate, don't duplicate work.
 | `/swarm msg <agent-name> "text"` | Send direct message to another agent. |
 | `/swarm broadcast "text"` | Send message to all agents. |
 | `/swarm lead [agent-name]` | Set team lead. Lead manages hierarchy and task distribution. |
+| `/swarm delegate` | Lead distributes all open tasks to best-matched agents and sends each a work prompt. Runs `node {skillDir}/lib/orchestrator-cli.js distribute {swarmRoot} {myAgentId}`. (Also happens automatically each turn when you are lead.) |
+| `/swarm agent codex\|gemini [capabilities]` | Launch a Codex/Gemini worker as a detached background process. Runs `node {skillDir}/lib/launch.js agent <provider> {swarmRoot} [caps]`. |
 | `/swarm split <task-id> "sub1" "sub2" ...` | Split task into subtasks. |
 | `/swarm modify task <id> <field> <value>` | Modify a task. Fields: title, description, priority, tags, status. |
 | `/swarm modify agent <name> <field> <value>` | Modify an agent. Fields: capabilities, role, status, name. |
 | `/swarm modify config <field> <value>` | Modify swarm config. Fields: sync_interval, transport, max_tasks_per_agent. |
 | `/swarm escalate <message>` | Escalate a decision to the human user. |
 | `/swarm resolve <escalation-id> <decision>` | Human resolves an escalation. |
-| `/swarm dashboard` | Launch HTML dashboard in browser. Runs a local HTTP server, opens `http://localhost:7379`. Preferred over TUI — no terminal blocking. |
+| `/swarm dashboard` | Launch HTML dashboard (detached). Runs `node {skillDir}/lib/launch.js dashboard {swarmRoot}`, opens `http://localhost:7379`. |
 | `/swarm dashboard-tui` | Launch terminal (blessed) dashboard in a NEW terminal window. **Must use `Start-Process` (Windows) or open new terminal.** TUI takes over the terminal — CANNOT run inline in chat. |
-| `/swarm server [port]` | Start WebSocket relay server for real-time messaging. |
-| `/swarm start` | Start full stack (WS server + HTML dashboard) with single command. |
+| `/swarm server [port]` | Start WebSocket relay server (detached). Runs `node {skillDir}/lib/launch.js server {swarmRoot}`. |
+| `/swarm start` | Start full stack (WS server + HTML dashboard), detached + idempotent. Runs `node {skillDir}/lib/launch.js stack {swarmRoot}`. |
+| `/swarm stop` | Stop all swarm processes (server, dashboard, agents). Runs `node {skillDir}/lib/launch.js stop {swarmRoot}`. |
+| `/swarm ps` | Show running swarm processes + server health. Runs `node {skillDir}/lib/launch.js status {swarmRoot}`. |
 
 ## Modify
 
@@ -185,7 +189,8 @@ Critical tasks can preempt lower-priority work:
 ### WebSocket (real-time, preferred)
 
 Messages flow instantly via WebSocket when server is running.
-Start server: `/swarm server` or `node lib/realtime.js`
+Start server: `/swarm server` (→ `node {skillDir}/lib/launch.js server {swarmRoot}`).
+Git-based messaging always works even with no server — messages are YAML files.
 
 ### Git (fallback, always available)
 
@@ -223,35 +228,39 @@ Available modules:
 - `lib/hierarchy.js` — team structure
 - `lib/conflict-resolver.js` — race resolution
 - `lib/agent-loop.js` — autonomous loop + escalation
+- `lib/orchestrator.js` — lead task distribution (delegation brain)
+- `lib/orchestrator-cli.js` — CLI over orchestrator (used by `/swarm delegate` + adapters)
+- `lib/launch.js` — detached launcher for server/dashboard/agents
 - `lib/realtime.js` — WebSocket server/client (zero deps)
 - `lib/realtime-message-bus.js` — WS message bus wrapper
 
-For `/swarm server`: run `node {skillDir}/lib/server.js [port]`
+For `/swarm server`: run `node {skillDir}/lib/launch.js server {swarmRoot}`
 
 ## Dashboard
 
 ### HTML Dashboard (preferred — no terminal blocking)
 
-Run the HTTP server, then open the URL in any browser:
+All process launching goes through the detached, idempotent launcher
+`lib/launch.js`. It writes PID + logs under `{swarmRoot}/.swarm/.run/`, never
+double-starts a healthy server, and survives the shell that started it.
 
 ```bash
-node {skillDir}/dashboard/web.js [port] [swarmRoot]
-# default port: 7379
-# opens: http://localhost:7379
+node {skillDir}/lib/launch.js stack     {swarmRoot}   # WS server + HTML dashboard
+node {skillDir}/lib/launch.js server    {swarmRoot}   # WS relay only
+node {skillDir}/lib/launch.js dashboard {swarmRoot}   # HTML dashboard only
+node {skillDir}/lib/launch.js status    {swarmRoot}   # what's running + health
+node {skillDir}/lib/launch.js stop      {swarmRoot}   # stop everything
 ```
 
-Or use the full-stack launcher:
-```bash
-node {skillDir}/start.js [swarmRoot]
-# starts WS relay + HTML dashboard together
-# WS:  ws://localhost:9377
-# Dash: http://localhost:7379
-```
+Command mapping:
+- `/swarm start` → `node {skillDir}/lib/launch.js stack {swarmRoot}` → tell user the dashboard + WS URLs.
+- `/swarm dashboard` → `node {skillDir}/lib/launch.js dashboard {swarmRoot}` → "Dashboard at http://localhost:7379 (auto-refresh 3s)."
+- `/swarm server` → `node {skillDir}/lib/launch.js server {swarmRoot}`.
+- `/swarm stop` → `node {skillDir}/lib/launch.js stop {swarmRoot}`.
+- `/swarm ps` → `node {skillDir}/lib/launch.js status {swarmRoot}`.
 
-For `/swarm dashboard`: run `node {skillDir}/dashboard/web.js [port] {swarmRoot}` then tell user:
-"Dashboard running at http://localhost:7379 — open in browser. Auto-refreshes every 3s."
-
-For `/swarm start`: run `node {skillDir}/start.js {swarmRoot}` then tell user the WS and dashboard URLs.
+These return immediately (detached) — run them with a short timeout; do NOT
+block waiting for them. The old `start.js` still works but `launch.js` is preferred.
 
 ### TUI Dashboard (legacy — blocks terminal)
 
@@ -271,36 +280,52 @@ After launching: "TUI dashboard opened in new terminal. Press q to quit."
 
 ## Task Delegation and Splitting
 
-When a user gives a complex task that should be split across agents:
+### Automatic distribution (default)
 
-### Step 1 — Split the task
+The **lead distributes open tasks automatically every turn.** The `swarm-sync`
+hook calls `orchestrator.distribute()` when you are the lead: each open, unblocked
+task is assigned to the best-matched active agent (capability + load + priority
+scoring) and that agent receives a `task_assignment` message carrying an actionable
+work prompt. You do not need to do anything — just create tasks and add workers.
+
+Trigger it manually anytime with `/swarm delegate`
+(→ `node {skillDir}/lib/orchestrator-cli.js distribute {swarmRoot} {myAgentId}`).
+
+### Adding workers
+
+```
+/swarm agent codex backend,python       # launch a Codex worker (detached)
+/swarm agent gemini frontend,testing     # launch a Gemini worker (detached)
+```
+→ `node {skillDir}/lib/launch.js agent <provider> {swarmRoot} <caps>`.
+Worker logs: `{swarmRoot}/.swarm/.run/agent-<provider>.log`.
+Needs `CODEX_API_KEY`/`OPENAI_API_KEY` (codex) or `GEMINI_API_KEY` (gemini) in the
+environment. To test the whole loop with no API spend, set `SWARM_FAKE_LLM=1`.
+
+### Splitting big tasks
+
 ```
 /swarm split <task-id> "Subtask A" "Subtask B" "Subtask C"
 ```
-- Parent task becomes `split` status
-- Each subtask is created as `open` with same priority and tags as parent
-- Subtasks get `parent_task` field pointing to parent
+Parent becomes `split`; subtasks are created `open` (same priority/tags, `parent_task`
+set). The lead then auto-distributes the new subtasks on the next turn.
 
-### Step 2 — Assign or let agents claim
-Option A (manual): `/swarm assign <subtask-id> <agent-name>`
-Option B (automatic): Agents see open subtasks on next sync and claim matching ones
+### How an agent acts on an assignment
 
-### Step 3 — Track completion
-Use `/swarm status` to see subtask progress. All subtasks done = parent work complete.
+When a `task_assignment` message targets an agent (you'll see it surfaced as
+"📨 task assignment(s) for you"):
+1. Claim/accept the task (it's already `assigned` to you).
+2. **Produce real output** — actual code, analysis, or findings. Never placeholder text.
+3. Mark done with the real result: `/swarm done "<result>"` (Claude) or
+   `##SWARM:DONE:task-uuid:<result>##` (Codex/Gemini).
+4. LLM workers write results into the task `result` field — they do NOT edit repo files.
 
-### For LLM adapters (Codex/Gemini)
-These agents use action markers. When a delegated task arrives:
-- Agent sees it as `assigned` in their active tasks list
-- Agent must produce **real output** — actual code, real analysis, concrete implementation
-- Agent marks done: `##SWARM:DONE:task-uuid:actual result here##`
-- Agent can split further: `##SWARM:SPLIT:task-uuid:Sub 1|Sub 2##`
-- Agent can delegate to specialist: `##SWARM:DELEGATE:task-uuid:agent-uuid##`
+### Inter-agent messages
 
-### Working on tasks (important)
-When an LLM agent claims or is assigned a task:
-1. The LLM is asked to produce the actual work output
-2. The result in `##SWARM:DONE##` must be real — code, analysis, findings
-3. Never use placeholder text like "I did the task" — write the actual deliverable
+Agents coordinate with `/swarm msg <agent> "..."` and `/swarm broadcast "..."`.
+Incoming messages are surfaced to each agent every turn (git-based, always works;
+instant via WebSocket when the server is up). A worker that needs help broadcasts a
+`help_request`; teammates respond with real answers.
 
 ## Boundaries
 
