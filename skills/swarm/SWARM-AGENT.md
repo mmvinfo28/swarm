@@ -16,6 +16,12 @@ export SWARM="<PATH-TO>/lib/swarm-cli.js"     # given to you in the start messag
 `node "<PATH-TO>/lib/swarm-cli.js"` each time. The CLI auto-detects the repo from the
 current directory; add `--root "<repo>"` if you are elsewhere.)
 
+If `.swarm/` does not exist in this repo yet, create it once:
+
+```bash
+node "$SWARM" init
+```
+
 Join the team (pick your own name + skills):
 
 ```bash
