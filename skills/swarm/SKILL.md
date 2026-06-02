@@ -29,6 +29,8 @@ Your actions affect the whole team. Coordinate, don't duplicate work.
 | `/swarm delegate` | Lead distributes all open tasks to best-matched agents and sends each a work prompt. Runs `node {skillDir}/lib/orchestrator-cli.js distribute {swarmRoot} {myAgentId}`. (Also happens automatically each turn when you are lead.) |
 | `/swarm agent codex\|gemini [capabilities]` | Launch a Codex/Gemini **API** worker (needs API key) as a detached background process. Runs `node {skillDir}/lib/launch.js agent <provider> {swarmRoot} [caps]`. |
 | `/swarm onboard [name] [capabilities]` | **No API key.** Print a ready-to-paste start command for a Codex CLI / Gemini CLI agent. They read `SWARM-AGENT.md` and drive the swarm via `lib/swarm-cli.js` on their own Pro/CLI plan. See "Onboard a CLI agent" below. |
+| `/swarm worker claude\|gemini\|codex [name] [caps]` | **No API key (claude).** Start a **background agent daemon** that loops inbox → reason (`claude -p` headless) → act. Runs `node {skillDir}/lib/launch.js worker <provider> {swarmRoot} "<name>" <caps>`. See "Background agents" below. |
+| `/swarm say <agent> "text"` | Inject a message into an agent's inbox (you → agent / panel → LLM). Runs `node {skillDir}/lib/swarm-cli.js say <agent> "text" --root {swarmRoot}`. |
 | `/swarm split <task-id> "sub1" "sub2" ...` | Split task into subtasks. |
 | `/swarm modify task <id> <field> <value>` | Modify a task. Fields: title, description, priority, tags, status. |
 | `/swarm modify agent <name> <field> <value>` | Modify an agent. Fields: capabilities, role, status, name. |
@@ -278,6 +280,40 @@ node {skillDir}/dashboard/index.js {swarmRoot} &
 ```
 
 After launching: "TUI dashboard opened in new terminal. Press q to quit."
+
+## Background agents (v2 — continuous, no API key)
+
+Agents can run as **always-on background daemons** that never stop, talk through
+**inbox/outbox**, and let the lead route work — driven by `claude -p` headless (no API key,
+your Claude plan), or gemini/codex (CLI if installed, else API key).
+
+### Start workers
+```
+/swarm start                                  # WS server + control-panel dashboard
+/swarm worker claude "Alice" coordination     # background lead (first worker = lead)
+/swarm worker claude "Bob"   backend,api       # background worker
+```
+→ `node {skillDir}/lib/launch.js worker claude {swarmRoot} "<name>" <caps>`.
+Detached; logs at `{swarmRoot}/.swarm/.run/worker-<name>.log`. Stop all: `/swarm stop`.
+
+### How it flows
+1. Each worker loops (default 30s). **Cost-safe:** it only calls the LLM when its inbox has a
+   message or it has an assigned task — idle = a cheap heartbeat, no LLM call.
+2. The **lead auto-distributes** open tasks → each lands in the assignee's inbox as a prompt.
+3. A worker reads its inbox, reasons, emits `##SWARM:..##` actions (claim/done/msg/…), writes
+   its output to its **outbox**. Results go into the task `result` field (no repo edits).
+4. **You inject** into any agent: `/swarm say Bob "investigate the timeout bug"` or type into the
+   dashboard's inject box. It hits Bob's inbox → next tick Bob processes it → reply shows in the
+   **Message Flow** panel.
+
+### Control panel
+`/swarm dashboard` (or `/swarm start`) → `http://localhost:7379`. The **Message Flow** panel
+shows live inbox/outbox across all agents; the inject box (top of that panel) sends a message
+into any agent. `node {skillDir}/lib/swarm-cli.js outbox` shows the same flow in the terminal.
+
+### Test free (no quota)
+Set `SWARM_DRIVER=fake` before launching a worker — it acts deterministically with zero LLM
+calls. Good for verifying routing/inbox/outbox end-to-end.
 
 ## Onboard a CLI agent (no API key — recommended)
 

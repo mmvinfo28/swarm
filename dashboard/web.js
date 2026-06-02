@@ -68,7 +68,18 @@ function readState() {
     if (e.status === 'pending') state.escalations.push(e);
   }
 
+  // io flow (inbox/outbox) for the control panel.
+  try {
+    const ioBus = require(path.join(__dirname, '..', 'lib', 'io-bus'));
+    state.flow = ioBus.recentFlow(swarmRoot, 40);
+  } catch (_) { state.flow = []; }
+
   return state;
+}
+
+function injectMessage(agentId, text) {
+  const ioBus = require(path.join(__dirname, '..', 'lib', 'io-bus'));
+  return ioBus.deliver(swarmRoot, agentId, { from: 'human', type: 'chat', content: text });
 }
 
 // ─── HTML ────────────────────────────────────────────────────────────────────
@@ -168,7 +179,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
       <div class="pb" id="b-tasks"><div class="empty">Loading…</div></div>
     </div>
     <div class="panel">
-      <div class="ph">&#9675; Messages <span class="cnt" id="cnt-msgs">0</span></div>
+      <div class="ph">&#9675; Message Flow <span class="cnt" id="cnt-msgs">0</span></div>
+      <div style="display:flex;gap:5px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bg2)">
+        <select id="inj-agent" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:11px;padding:2px"></select>
+        <input id="inj-text" placeholder="inject a message…" style="flex:1;min-width:0;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:11px;padding:3px 6px" onkeydown="if(event.key==='Enter')doInject()"/>
+        <button onclick="doInject()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 10px">Send</button>
+      </div>
       <div class="pb" id="b-msgs"><div class="empty">Loading…</div></div>
     </div>
     <div class="panel">
@@ -301,8 +317,37 @@ function updateHeader(state){
   document.getElementById('h-tasks').innerHTML='tasks: <b>'+open+' open &middot; '+active+' active &middot; '+done+' done</b>';
   document.getElementById('cnt-agents').textContent=agents.length;
   document.getElementById('cnt-tasks').textContent=tasks.length;
-  document.getElementById('cnt-msgs').textContent=(state.messages||[]).length;
+  document.getElementById('cnt-msgs').textContent=(state.flow||[]).length;
   document.getElementById('cnt-escs').textContent=(state.escalations||[]).length;
+}
+
+function renderFlow(state){
+  const flow=state.flow||[];
+  const agents=state.agents||[];
+  if(!flow.length)return'<div class="empty">No messages yet. Inject one above &#8593;</div>';
+  return flow.slice().reverse().map(m=>{
+    const t=m.timestamp?new Date(m.timestamp).toLocaleTimeString():'';
+    const who=agentName(m.agent,agents);
+    const dir=m.box==='in'?'<span style="color:var(--green)">in&#8594;</span>':'<span style="color:var(--blue)">&#8592;out</span>';
+    return '<div class="msg"><span class="mt">'+e(t)+'</span> '+dir+' <span class="mf">'+e(who)+'</span>: <span class="mbody">'+e((m.content||'').slice(0,90))+'</span></div>';
+  }).join('')
+}
+
+function populateInject(state){
+  const sel=document.getElementById('inj-agent');
+  if(!sel)return;
+  const cur=sel.value;
+  sel.innerHTML=(state.agents||[]).map(a=>'<option value="'+e(a.id)+'">'+e(a.name)+'</option>').join('');
+  if(cur)sel.value=cur;
+}
+
+function doInject(){
+  const agent=document.getElementById('inj-agent').value;
+  const text=document.getElementById('inj-text').value.trim();
+  if(!agent||!text)return;
+  fetch('/api/inject',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent:agent,text:text})})
+    .then(r=>r.json()).then(()=>{document.getElementById('inj-text').value='';fetchState();})
+    .catch(()=>{});
 }
 
 async function fetchState(){
@@ -314,9 +359,9 @@ async function fetchState(){
     const state=await r.json();
     document.getElementById('b-team').innerHTML=renderTeam(state);
     document.getElementById('b-tasks').innerHTML=renderTasks(state);
-    const msgEl=document.getElementById('b-msgs');
-    msgEl.innerHTML=renderMessages(state);
+    document.getElementById('b-msgs').innerHTML=renderFlow(state);
     document.getElementById('b-health').innerHTML=renderHealth(state);
+    populateInject(state);
     updateHeader(state);
     dot.className='dot ok';txt.textContent='live';
     document.getElementById('rtime').textContent='updated '+new Date().toLocaleTimeString();
@@ -351,6 +396,25 @@ const server = http.createServer((req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
     }
+    return;
+  }
+
+  // Inject a message into an agent's inbox (control-panel → agent).
+  if (req.url === '/api/inject' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const { agent, text } = JSON.parse(body || '{}');
+        if (!agent || !text) throw new Error('agent and text required');
+        const msg = injectMessage(agent, text);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, msg }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
     return;
   }
 

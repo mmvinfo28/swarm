@@ -10,6 +10,10 @@
 
 'use strict';
 
+// Recursion guard: headless workers (claude -p driver) set this so the spawned
+// Claude doesn't re-trigger swarm hooks.
+if (process.env.SWARM_DISABLE_HOOKS) process.exit(0);
+
 let input = '';
 process.stdin.on('data', chunk => { input += chunk; });
 process.stdin.on('end', () => {
