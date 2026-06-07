@@ -116,10 +116,17 @@ Parent becomes `split` status. Each subtask created as `open` task.
 
 ### Message a specific agent
 ```
-##SWARM:MSG:agent-uuid:your message here##
+##SWARM:MSG:agent-name-or-id:your message here##
 ```
 
-### Broadcast to all agents
+### Post to the COMMON ROOM (shared chat — every agent reads it)
+```
+##SWARM:ROOM:your announcement here##
+```
+Use the room to coordinate: announce what you are taking, ask the team for help,
+share results, or offer a task for anyone to pick up. This is how the team talks.
+
+### Broadcast to all agents (alias of ROOM)
 ```
 ##SWARM:BROADCAST:your message here##
 ```

@@ -79,6 +79,7 @@ function readState() {
 
 function injectMessage(agentId, text) {
   const ioBus = require(path.join(__dirname, '..', 'lib', 'io-bus'));
+  if (agentId === 'room') return ioBus.postRoom(swarmRoot, 'human', text, 'chat');
   return ioBus.deliver(swarmRoot, agentId, { from: 'human', type: 'chat', content: text });
 }
 
@@ -327,8 +328,8 @@ function renderFlow(state){
   if(!flow.length)return'<div class="empty">No messages yet. Inject one above &#8593;</div>';
   return flow.slice().reverse().map(m=>{
     const t=m.timestamp?new Date(m.timestamp).toLocaleTimeString():'';
-    const who=agentName(m.agent,agents);
-    const dir=m.box==='in'?'<span style="color:var(--green)">in&#8594;</span>':'<span style="color:var(--blue)">&#8592;out</span>';
+    const who=m.from==='human'?'human':agentName(m.agent,agents);
+    const dir=m.box==='room'?'<span style="color:var(--purple)">room</span>':(m.box==='in'?'<span style="color:var(--green)">in&#8594;</span>':'<span style="color:var(--blue)">&#8592;out</span>');
     return '<div class="msg"><span class="mt">'+e(t)+'</span> '+dir+' <span class="mf">'+e(who)+'</span>: <span class="mbody">'+e((m.content||'').slice(0,90))+'</span></div>';
   }).join('')
 }
@@ -337,7 +338,7 @@ function populateInject(state){
   const sel=document.getElementById('inj-agent');
   if(!sel)return;
   const cur=sel.value;
-  sel.innerHTML=(state.agents||[]).map(a=>'<option value="'+e(a.id)+'">'+e(a.name)+'</option>').join('');
+  sel.innerHTML='<option value="room">&#128226; Common Room</option>'+(state.agents||[]).map(a=>'<option value="'+e(a.id)+'">'+e(a.name)+'</option>').join('');
   if(cur)sel.value=cur;
 }
 

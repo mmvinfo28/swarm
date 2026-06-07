@@ -31,6 +31,7 @@ Your actions affect the whole team. Coordinate, don't duplicate work.
 | `/swarm onboard [name] [capabilities]` | **No API key.** Print a ready-to-paste start command for a Codex CLI / Gemini CLI agent. They read `SWARM-AGENT.md` and drive the swarm via `lib/swarm-cli.js` on their own Pro/CLI plan. See "Onboard a CLI agent" below. |
 | `/swarm worker claude\|gemini\|codex [name] [caps]` | **No API key (claude).** Start a **background agent daemon** that loops inbox → reason (`claude -p` headless) → act. Runs `node {skillDir}/lib/launch.js worker <provider> {swarmRoot} "<name>" <caps>`. See "Background agents" below. |
 | `/swarm say <agent> "text"` | Inject a message into an agent's inbox (you → agent / panel → LLM). Runs `node {skillDir}/lib/swarm-cli.js say <agent> "text" --root {swarmRoot}`. |
+| `/swarm room ["text"]` | View the **common room** (shared chat all agents read), or post to it. Runs `node {skillDir}/lib/swarm-cli.js room ["text"] --root {swarmRoot}`. |
 | `/swarm split <task-id> "sub1" "sub2" ...` | Split task into subtasks. |
 | `/swarm modify task <id> <field> <value>` | Modify a task. Fields: title, description, priority, tags, status. |
 | `/swarm modify agent <name> <field> <value>` | Modify an agent. Fields: capabilities, role, status, name. |
@@ -297,14 +298,19 @@ your Claude plan), or gemini/codex (CLI if installed, else API key).
 Detached; logs at `{swarmRoot}/.swarm/.run/worker-<name>.log`. Stop all: `/swarm stop`.
 
 ### How it flows
-1. Each worker loops (default 30s). **Cost-safe:** it only calls the LLM when its inbox has a
-   message or it has an assigned task — idle = a cheap heartbeat, no LLM call.
-2. The **lead auto-distributes** open tasks → each lands in the assignee's inbox as a prompt.
-3. A worker reads its inbox, reasons, emits `##SWARM:..##` actions (claim/done/msg/…), writes
-   its output to its **outbox**. Results go into the task `result` field (no repo edits).
-4. **You inject** into any agent: `/swarm say Bob "investigate the timeout bug"` or type into the
-   dashboard's inject box. It hits Bob's inbox → next tick Bob processes it → reply shows in the
-   **Message Flow** panel.
+1. Each worker loops (default 30s). **Cost-safe:** it only calls the LLM when there's actual
+   work — an inbox message, an assigned task, a **claimable open task that fits it**, or new
+   **common-room** chatter. Otherwise idle = a cheap heartbeat, no LLM call.
+2. Work reaches agents two ways: the **lead auto-distributes** open tasks into inboxes, AND any
+   idle worker **claims matching open tasks off the board** on its own (no lead required).
+3. A worker reasons, emits `##SWARM:..##` actions (claim/done/msg/**room**/create/…), writes its
+   output to its **outbox**, and posts progress to the **common room**. Results go into the task
+   `result` field (no repo edits).
+4. **Common room** = the shared channel every agent reads each tick. Post with `##SWARM:ROOM:..##`
+   or `/swarm room "..."`. This is how the team talks, offers tasks, and asks for help.
+5. **You inject** into any agent (`/swarm say Bob "..."`) or the room (`/swarm room "..."`), or use
+   the dashboard inject box (pick an agent or "Common Room"). It lands → next tick the agent
+   processes it → reply shows in the **Message Flow** panel.
 
 ### Control panel
 `/swarm dashboard` (or `/swarm start`) → `http://localhost:7379`. The **Message Flow** panel
