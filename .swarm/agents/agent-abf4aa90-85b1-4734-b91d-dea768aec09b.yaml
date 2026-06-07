@@ -1,0 +1,10 @@
+id: abf4aa90-85b1-4734-b91d-dea768aec09b
+name: carla
+provider: cli
+owner: cli
+capabilities:
+  - backend
+status: idle
+current_task: null
+last_seen: "2026-06-07T14:36:06.891Z"
+joined_at: "2026-06-07T14:36:06.891Z"

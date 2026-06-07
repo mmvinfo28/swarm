@@ -1,0 +1,11 @@
+[swarm-server] WebSocket relay running
+[swarm-server] URL:      ws://localhost:9377/ws
+[swarm-server] Root:     C:/Users/20252404/OneDrive - TU Eindhoven/Desktop/skil
+[swarm-server] Auth:     open (no token)
+[swarm-server] Health:   ws://localhost:9377/health
+
+[swarm-server] Set in agent environments:
+  SWARM_SERVER_URL=ws://localhost:9377/ws
+
+[swarm-server] Press Ctrl+C to stop.
+[swarm-server] URL saved to C:\Users\20252404\OneDrive - TU Eindhoven\Desktop\skil\.swarm\.server-url
