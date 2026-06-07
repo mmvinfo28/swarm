@@ -262,21 +262,6 @@ function renderTasks(state){
   return html
 }
 
-function renderMessages(state){
-  const msgs=(state.messages||[]).slice().reverse().slice(0,30);
-  const agents=state.agents||[];
-  if(!msgs.length)return'<div class="empty">No messages</div>';
-  const icons={chat:'&#9656;',help_request:'?',knowledge_share:'*',task_handoff:'~',credit_alert:'$',status_update:'i',auto_reply:'&laquo;',priority_change:'^'};
-  return msgs.map(m=>{
-    const from=agentName(m.from,agents);
-    const to=m.to==='broadcast'?'ALL':agentName(m.to,agents);
-    const t=m.timestamp?new Date(m.timestamp).toLocaleTimeString():'';
-    const icon=icons[m.type]||'&#9656;';
-    const body=String(m.content||'').slice(0,80);
-    return'<div class="msg"><span class="mt">'+e(t)+'</span>'+icon+' <span class="mf">'+e(from)+'</span><span class="marr">&#8594;</span><span class="mto">'+e(to)+'</span>: <span class="mbody">'+e(body)+'</span></div>'
-  }).join('')
-}
-
 function renderHealth(state){
   const agents=state.agents||[];
   const tasks=state.tasks||[];
