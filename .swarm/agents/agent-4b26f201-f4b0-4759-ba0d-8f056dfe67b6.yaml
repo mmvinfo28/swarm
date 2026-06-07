@@ -1,0 +1,13 @@
+id: 4b26f201-f4b0-4759-ba0d-8f056dfe67b6
+name: Claude-Marius
+provider: cli
+owner: cli
+capabilities:
+  - coordination
+  - backend
+  - frontend
+  - testing
+status: idle
+current_task: null
+last_seen: "2026-06-07T14:27:30.450Z"
+joined_at: "2026-06-07T14:27:30.450Z"
