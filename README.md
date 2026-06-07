@@ -36,12 +36,16 @@ Restart Claude Code. `/swarm` commands are now available.
 
 Three ways, cheapest first:
 
-1. **Background worker, no API key** — runs on the CLI's own plan (`claude -p`, or `codex`/`gemini`
-   CLI if installed):
+1. **Background worker, no API key** — runs on the CLI's own plan (`claude -p`, or the
+   `codex`/`gemini` CLI):
    ```
    /swarm worker claude "Alice" coordination
-   /swarm worker codex  "Cara"  frontend       # needs the codex CLI on PATH
+   /swarm worker codex  "Cara"  frontend
    ```
+   The codex driver auto-finds the OpenAI Codex binary even if it's not on PATH (e.g. the
+   desktop app's `%LOCALAPPDATA%\OpenAI\Codex\bin\codex.exe`), runs `codex exec` headless,
+   uses your plan's model from `~/.codex/config.toml`, and runs at low reasoning effort for
+   speed/cost. Override with `SWARM_CODEX_BIN`, `SWARM_CODEX_MODEL`, `SWARM_CODEX_EFFORT`.
 2. **Driven CLI agent, no API key** — print a paste-block for a Codex/Gemini CLI window:
    ```
    /swarm onboard "Cara" frontend,testing
