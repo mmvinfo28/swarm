@@ -32,24 +32,28 @@ Add to `~/.claude/settings.json`:
 
 Restart Claude Code. `/swarm` commands are now available.
 
-### Codex / Gemini adapters
+### Adding other LLMs (Codex / Gemini)
 
-```bash
-# Codex (OpenAI)
-CODEX_API_KEY=sk-... python adapters/codex-wrapper.py \
-  --swarm-root /path/to/repo \
-  --name "Codex-Bob" \
-  --capabilities "backend,python,testing"
+Three ways, cheapest first:
 
-# Gemini (Google)
-GEMINI_API_KEY=... python adapters/gemini-wrapper.py \
-  --swarm-root /path/to/repo \
-  --name "Gemini-Carol" \
-  --capabilities "frontend,review"
-```
+1. **Background worker, no API key** — runs on the CLI's own plan (`claude -p`, or `codex`/`gemini`
+   CLI if installed):
+   ```
+   /swarm worker claude "Alice" coordination
+   /swarm worker codex  "Cara"  frontend       # needs the codex CLI on PATH
+   ```
+2. **Driven CLI agent, no API key** — print a paste-block for a Codex/Gemini CLI window:
+   ```
+   /swarm onboard "Cara" frontend,testing
+   ```
+3. **API worker (pay per token)** — set a key, then `/swarm worker codex …`, or run the Python
+   adapter directly:
+   ```bash
+   CODEX_API_KEY=sk-...  python adapters/codex-wrapper.py --swarm-root . --name "Cara" --capabilities backend
+   GEMINI_API_KEY=...     python adapters/gemini-wrapper.py --swarm-root . --name "Gus"  --capabilities frontend
+   ```
 
-The adapter auto-discovers the WebSocket server from `.swarm/.server-url` if it exists.
-Each adapter includes `adapters/CODEX.md` in its system prompt so the LLM knows exactly what to do.
+See **Demo: Claude + Codex** below for the full walkthrough.
 
 ---
 
@@ -75,27 +79,43 @@ Then open **http://localhost:7379** in any browser.
 
 ## Commands
 
+### Team + tasks
 | Command | Action |
 |---------|--------|
 | `/swarm init` | Initialize `.swarm/` in current repo |
 | `/swarm join [name] [caps]` | Register this agent |
 | `/swarm status` | Show team, tasks, messages |
-| `/swarm task "title" [priority] [tags]` | Create task |
-| `/swarm assign <id> <agent>` | Assign task to specific agent |
-| `/swarm claim <id>` | Claim open task (conflict-free) |
-| `/swarm done [result]` | Complete current task |
-| `/swarm split <id> "sub1" "sub2"` | Split task into subtasks |
-| `/swarm modify task <id> <field> <value>` | Modify task field |
-| `/swarm modify agent <name> <field> <value>` | Modify agent field |
-| `/swarm modify config <field> <value>` | Modify swarm config |
-| `/swarm msg <agent> "text"` | Direct message to agent |
-| `/swarm broadcast "text"` | Message all agents |
-| `/swarm lead [agent]` | Set team lead |
-| `/swarm escalate <message>` | Escalate decision to human |
-| `/swarm resolve <id> <decision>` | Resolve escalation |
-| `/swarm dashboard` | Start HTML dashboard server, open browser |
-| `/swarm server [port]` | Start WebSocket relay server only |
-| `/swarm start` | Start full stack (WS server + dashboard) |
+| `/swarm task "title" [priority] [tags]` | Create a task on the board |
+| `/swarm assign <id> <agent>` | Assign a task to a specific agent |
+| `/swarm claim <id>` | Claim an open task (conflict-free) |
+| `/swarm done [result]` | Complete a task you own |
+| `/swarm split <id> "sub1" "sub2"` | Split a task into subtasks |
+| `/swarm delegate` | Lead hands out open tasks to best agents |
+| `/swarm lead [agent]` | Set the team lead |
+| `/swarm modify task\|agent\|config …` | Edit a task/agent/config field |
+
+### Communication
+| Command | Action |
+|---------|--------|
+| `/swarm room ["text"]` | View or post to the **common room** (shared chat) |
+| `/swarm say <agent> "text"` | Inject a message into an agent's inbox |
+| `/swarm msg <agent> "text"` | Direct message to an agent |
+| `/swarm broadcast "text"` | Post to the common room |
+
+### Run the swarm
+| Command | Action |
+|---------|--------|
+| `/swarm start` | Start WS server + HTML control panel (detached) |
+| `/swarm dashboard` | Start the HTML control panel only |
+| `/swarm worker claude\|gemini\|codex [name] [caps]` | Start a **background agent daemon** (Claude = no API key) |
+| `/swarm onboard [name] [caps]` | Print a paste-block to drive a Codex/Gemini **CLI** as an agent |
+| `/swarm agent codex\|gemini [caps]` | Start a Python **API** worker (needs API key) |
+| `/swarm ps` | Show running processes + health |
+| `/swarm stop` | Stop all swarm processes |
+| `/swarm server [port]` | Start the WebSocket relay only |
+
+Rules are enforced in code: an agent can only `done` a task assigned to it (must `claim`
+an open one first) and can't claim another agent's task. Idle workers make **zero** LLM calls.
 
 ---
 
@@ -123,18 +143,96 @@ node dashboard/web.js [port] [swarm-root]    # HTML dashboard only
 
 ---
 
-## HTML Dashboard
+## Control panel (HTML dashboard)
 
-Open `http://localhost:7379` after running `node start.js` or `node dashboard/web.js`.
+Open `http://localhost:7379` after `/swarm start` (or `node dashboard/web.js`).
+This is the main channel — drive the whole swarm from the browser.
 
-![4-panel grid: Agents | Tasks | Messages | Health]
+4-panel grid, auto-refresh every 3s, zero npm deps:
 
-- **Agents** — status indicator, capabilities, current task
-- **Tasks** — grouped by Active / Open / Split / Done, colored by priority
-- **Messages** — live message log, most recent first
+- **Agents** — status, capabilities, current task
+- **Tasks** — create tasks here (title + priority + tags → **Add**); grouped Active/Open/Split/Done
+- **Message Flow** — live inbox / outbox / **common room** traffic between agents; the inject box
+  sends a message to any agent or the Common Room
 - **Health & Escalations** — health bars, down agents, pending escalations
 
-Auto-refreshes every 3 seconds. Zero npm dependencies — pure Node.js stdlib.
+Sending a task from the panel puts it on the board and announces it in the room — idle
+background workers wake and claim it.
+
+---
+
+## Demo: Claude + Codex working together
+
+Start with **Claude** (no API key, runs on your Claude plan), then add **Codex**.
+
+### 1. Start the swarm + a Claude lead
+
+In Claude Code, inside your repo:
+
+```
+/swarm init
+/swarm start                                   # control panel at http://localhost:7379
+/swarm worker claude "Alice" coordination,review   # background lead (first worker = lead)
+```
+
+`Alice` now runs as a background daemon: she distributes work and reasons via `claude -p`.
+Open the dashboard — you'll see Alice online.
+
+### 2. Add a Claude worker
+
+```
+/swarm worker claude "Bob" backend,api
+```
+
+Two background Claude agents, no API key. Idle = zero tokens.
+
+### 3. Add Codex
+
+**Option A — Codex CLI (no API key, your Codex plan):** if the `codex` CLI is installed:
+
+```
+/swarm worker codex "Cara" frontend,testing
+```
+
+**Option B — Codex CLI as a driven agent:** print a paste-block and drop it into a Codex CLI window:
+
+```
+/swarm onboard "Cara" frontend,testing
+```
+
+**Option C — Codex API (pay per token):** set `CODEX_API_KEY`/`OPENAI_API_KEY`, then:
+
+```
+/swarm worker codex "Cara" frontend,testing
+```
+
+### 4. Send work — from chat or the dashboard
+
+```
+/swarm task "Build the login form" high frontend
+/swarm task "Add the /api/login endpoint" high backend
+```
+
+…or type the task into the dashboard's Tasks input. The lead distributes, or an idle worker
+claims it off the board. Each task lands in the right agent by capability (`frontend` → Cara,
+`backend` → Bob).
+
+### 5. Watch them collaborate
+
+- **Message Flow** panel shows agents claiming tasks, posting to the **common room**, and
+  messaging each other.
+- Drop a message into the room from the inject box (pick **Common Room**): `"focus on auth first"`
+  — every agent sees it on its next tick.
+- `/swarm status` and `/swarm room` show the same from the terminal.
+
+### 6. Stop
+
+```
+/swarm stop
+```
+
+Rules are enforced: an agent can't complete a task it wasn't assigned, and can't grab another's
+work — so Claude and Codex don't step on each other.
 
 ---
 
