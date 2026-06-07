@@ -83,6 +83,19 @@ function injectMessage(agentId, text) {
   return ioBus.deliver(swarmRoot, agentId, { from: 'human', type: 'chat', content: text });
 }
 
+function createTaskFromPanel(title, priority, tags) {
+  const taskManager = require(path.join(__dirname, '..', 'lib', 'task-manager'));
+  const ioBus = require(path.join(__dirname, '..', 'lib', 'io-bus'));
+  const t = taskManager.createTask(swarmRoot, title, '', {
+    createdBy: 'human',
+    priority: ['critical', 'high', 'medium', 'low'].includes(priority) ? priority : 'medium',
+    tags: Array.isArray(tags) ? tags : String(tags || '').split(',').map(s => s.trim()).filter(Boolean),
+  });
+  // Announce on the board so idle workers wake and the lead can distribute.
+  try { ioBus.postRoom(swarmRoot, 'human', `New task on the board: "${t.title}" [${t.priority}] (tags: ${(t.tags||[]).join(',')||'none'})`, 'chat'); } catch (_) {}
+  return t;
+}
+
 // ─── HTML ────────────────────────────────────────────────────────────────────
 
 const HTML = `<!DOCTYPE html>
@@ -177,6 +190,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
     </div>
     <div class="panel">
       <div class="ph">&#9670; Tasks <span class="cnt" id="cnt-tasks">0</span></div>
+      <div style="display:flex;gap:4px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bg2)">
+        <input id="nt-title" placeholder="new task → send to the board…" style="flex:1;min-width:0;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:11px;padding:3px 6px" onkeydown="if(event.key==='Enter')doCreateTask()"/>
+        <select id="nt-prio" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:11px;padding:2px"><option value="high">high</option><option value="critical">critical</option><option value="medium" selected>medium</option><option value="low">low</option></select>
+        <input id="nt-tags" placeholder="tags" style="width:80px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:11px;padding:3px 6px"/>
+        <button onclick="doCreateTask()" style="background:var(--yellow);color:#000;border:none;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 10px;font-weight:700">Add</button>
+      </div>
       <div class="pb" id="b-tasks"><div class="empty">Loading…</div></div>
     </div>
     <div class="panel">
@@ -351,6 +370,16 @@ function doInject(){
     .catch(()=>{});
 }
 
+function doCreateTask(){
+  const title=document.getElementById('nt-title').value.trim();
+  if(!title)return;
+  const priority=document.getElementById('nt-prio').value;
+  const tags=document.getElementById('nt-tags').value.trim();
+  fetch('/api/task',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title,priority:priority,tags:tags})})
+    .then(r=>r.json()).then(()=>{document.getElementById('nt-title').value='';document.getElementById('nt-tags').value='';fetchState();})
+    .catch(()=>{});
+}
+
 async function fetchState(){
   const dot=document.getElementById('conn-dot');
   const txt=document.getElementById('conn-txt');
@@ -411,6 +440,25 @@ const server = http.createServer((req, res) => {
         const msg = injectMessage(agent, text);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, msg }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Create a task from the panel (dashboard → board).
+  if (req.url === '/api/task' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const { title, priority, tags } = JSON.parse(body || '{}');
+        if (!title) throw new Error('title required');
+        const t = createTaskFromPanel(title, priority, tags);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, task: t }));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: err.message }));

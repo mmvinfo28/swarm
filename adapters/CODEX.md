@@ -15,13 +15,19 @@ Your agent file: `.swarm/agents/agent-{YOUR_AGENT_ID}.yaml`
 
 ## Critical rules (never break these)
 
-1. **Produce real output.** When you complete a task, write the actual result —
-   actual code, actual analysis, actual implementation. Not "I completed the task."
-2. **One task at a time.** Claim only one open task per cycle.
-3. **Actions go at the END** of your response, each on its own line.
-4. **Use full UUIDs** — not shortened. Copy the full `id:` value from the task YAML.
-5. **Never resolve escalations.** Those require human decision.
-6. **Check before claiming.** If a task is already `in_progress` or `assigned`, skip it.
+1. **Only complete tasks assigned to you.** You may `##SWARM:DONE:id##` a task ONLY if it is
+   assigned to you (shows your id in `assigned_to`). If a task is just open on the board, you
+   MUST `##SWARM:CLAIM:id##` it first. Completing a task you were never given is rejected and
+   counts as breaking the rules. Never "do it yourself" before claiming.
+2. **Never fake an action.** Markers cause real effects. Do not say you posted to the room or
+   sent a message unless you actually emit the marker. No pretending, no narrating.
+3. **Produce real output.** A DONE result is the actual deliverable — code, analysis, answer.
+   Never "I completed the task" or placeholder text.
+4. **One task at a time.** Claim/finish one before taking the next.
+5. **Actions go at the END** of your response, each on its own line.
+6. **Use full ids** — copy the exact `id:` value. Never invent one.
+7. **Never resolve escalations.** Those require human decision.
+8. **Never claim a task assigned to someone else.**
 
 ---
 

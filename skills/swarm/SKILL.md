@@ -312,10 +312,18 @@ Detached; logs at `{swarmRoot}/.swarm/.run/worker-<name>.log`. Stop all: `/swarm
    the dashboard inject box (pick an agent or "Common Room"). It lands → next tick the agent
    processes it → reply shows in the **Message Flow** panel.
 
-### Control panel
-`/swarm dashboard` (or `/swarm start`) → `http://localhost:7379`. The **Message Flow** panel
-shows live inbox/outbox across all agents; the inject box (top of that panel) sends a message
-into any agent. `node {skillDir}/lib/swarm-cli.js outbox` shows the same flow in the terminal.
+### Control panel (main channel)
+`/swarm dashboard` (or `/swarm start`) → `http://localhost:7379`. From the browser you can:
+- **Send tasks to the board** — the input above the Tasks panel (title + priority + tags → Add)
+  creates an open task and announces it in the room; idle workers wake and claim it.
+- **Message agents or the room** — the inject box above the Message Flow panel (pick an agent or
+  "Common Room"). The flow shows live inbox/outbox/room traffic between all agents.
+`node {skillDir}/lib/swarm-cli.js outbox` shows the same flow in the terminal.
+
+### Rule enforcement (agents can't cheat)
+Rules are enforced in code, not just the prompt: an agent can only `DONE` a task assigned to it
+(it must `CLAIM` an open one first), and can't claim another agent's task. A compact strict
+system prompt keeps token use low; idle ticks make **zero** LLM calls.
 
 ### Test free (no quota)
 Set `SWARM_DRIVER=fake` before launching a worker — it acts deterministically with zero LLM
