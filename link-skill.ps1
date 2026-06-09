@@ -79,6 +79,24 @@ if (Test-Path $target) {
     }
 }
 
+# ── Step 3: Junction the sibling `task` skill (/task add ...) ────────────────
+
+$taskSrc = Join-Path $repo "skills\task"
+$taskTarget = Join-Path $claude "skills\task"
+if (Test-Path $taskSrc) {
+    if (Test-Path $taskTarget) {
+        $tattr = (Get-Item $taskTarget -Force).Attributes
+        if (-not ($tattr -band [System.IO.FileAttributes]::ReparsePoint)) {
+            Remove-Item $taskTarget -Recurse -Force
+            cmd /c mklink /J "$taskTarget" "$taskSrc" | Out-Null
+            Write-Host "  [ok]   $taskTarget -> $taskSrc" -ForegroundColor Green
+        } else { Write-Host "  [skip] task skill already a junction" }
+    } else {
+        cmd /c mklink /J "$taskTarget" "$taskSrc" | Out-Null
+        Write-Host "  [ok]   $taskTarget -> $taskSrc" -ForegroundColor Green
+    }
+}
+
 Write-Host ""
 Write-Host "Done. Repo changes are now instant in Claude Code." -ForegroundColor Green
 Write-Host "Restart Claude Code once to pick up the new junction." -ForegroundColor Yellow

@@ -28,29 +28,39 @@ Join the team (pick your own name + skills):
 node "$SWARM" join "Codex-Bob" backend,api,testing
 ```
 
-## The loop — repeat this
+## The loop — run this CONTINUOUSLY, never stop
 
 ```bash
 node "$SWARM" inbox        # 1. What is assigned to me? Any messages?
 node "$SWARM" next         # 2. If nothing assigned, what should I claim?
-node "$SWARM" claim <id>   # 3. Claim it (skip if already assigned to you)
-#    ... 4. DO THE ACTUAL WORK in the repo: write code, run tests, edit files ...
-node "$SWARM" done <id> "<what you actually produced>"   # 5. Report real result
+node "$SWARM" claim <id>   # 3. Claim it (must claim before you work — you can only `done` a task that's yours)
+#    ... 4. DO THE ACTUAL WORK in this repo: write/edit files, run tests, make it real ...
+node "$SWARM" done <id> "<what you actually produced — files changed, what works>"   # 5. Report real result
 ```
 
-Then go back to step 1. Keep going until `inbox` and `next` show no work.
+**Do not stop. Do not wait for the human.** After step 5, go straight back to step 1.
+If `inbox` and `next` show nothing, sleep a few seconds and check again — new tasks
+arrive on the board at any time:
+
+```bash
+# nothing to do right now? poll again shortly, don't exit:
+sleep 5; node "$SWARM" inbox; node "$SWARM" next
+```
+
+Keep this loop running for the whole session. You are a worker — stay working.
 
 ## Rules
 
-- **Do real work.** When you `claim` a task, actually implement it in the repo — write
-  the code, create the files, run the tests. The `done` result must describe what you
-  truly did (files changed, what works), not "completed the task."
+- **Claim before you work.** You can only `done` a task that is assigned to you. To take an
+  open task, `claim` it first (the system rejects completing a task you weren't given).
+- **Do real work in the repo.** When you claim a task, actually implement it — edit the real
+  files, run the tests, make it work. The `done` result describes what you truly did.
+- **Never fake it.** Don't say you did something you didn't. Don't claim another agent's task.
 - **One task at a time.** Finish (`done`) before claiming the next.
 - **Match your skills.** `next` already picks tasks that fit your capabilities.
 - **Too big?** Split it: `node "$SWARM" split <id> "Part A" "Part B" "Part C"`, then claim a part.
-- **Stuck or unsure?** Ask the team: `node "$SWARM" broadcast "Question: REST or GraphQL for the API?"`
-  Then check `inbox` next loop for replies. Don't guess on big decisions.
-- **Talk to a teammate:** `node "$SWARM" msg <name> "your message"`.
+- **Talk to the team.** Post progress + questions to the common room: `node "$SWARM" room "taking the login form"`.
+  Message one agent: `node "$SWARM" msg <name> "..."`. Don't guess on big decisions — ask the room.
 
 ## All commands
 
@@ -66,7 +76,8 @@ done <id> "<result>"          Finish a task with your real output
 create "<title>" --priority high --tags a,b
 split <id> "<a>" "<b>"        Break a task into subtasks
 msg <name|id> "<text>"        Direct message
-broadcast "<text>"            Message everyone
+room ["<text>"]               View the common room, or post to it (everyone reads)
+broadcast "<text>"            Post to the common room
 delegate                      (lead only) hand open tasks to best agents
 assign <id> <name|id>         (lead only) assign a task
 lead [name]                   Make yourself/another the lead

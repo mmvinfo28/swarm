@@ -112,7 +112,23 @@ When user runs `/swarm init`:
 3. Register this agent automatically.
 4. Initialize hierarchy with this agent as lead.
 5. Git add + commit `.swarm/`.
-6. After init, offer to start the stack: "Run `node {skillDir}/start.js` to start the WS server + HTML dashboard."
+
+6. **Create a GitHub repo for the project (so all agents/machines sync through it).**
+   This is outward-facing — confirm the repo name + visibility with the user first
+   (default **private**). Then:
+   ```bash
+   git rev-parse --is-inside-work-tree || git init        # init git if needed
+   git add -A && git commit -m "swarm: init" || true
+   # requires the `gh` CLI, logged in (`gh auth status`)
+   gh repo create <repo-name> --private --source=. --remote=origin --push
+   ```
+   - If `gh` is missing or not authenticated, tell the user (`gh auth login`) and continue
+     in local-only mode — the swarm still works locally; they can add a remote later.
+   - After this, every agent's `done`/`claim`/messages sync via `git pull/push` to that repo,
+     so workers on other machines see the same board.
+
+7. After init, offer to start the stack + add workers:
+   "Run `/swarm start`, then `/swarm worker claude \"Alice\" coordination` to begin."
 
 ## Behavior Rules
 
@@ -343,13 +359,16 @@ Paste this into your Codex CLI / Gemini CLI session:
 ─────────────────────────────────────────────
 Read "{skillDir}/SWARM-AGENT.md" and follow it to act as a swarm agent.
 
-Setup:
+Setup (auto-registers you, works in THIS repo folder):
   cd "{swarmRoot}"
   export SWARM="{skillDir}/lib/swarm-cli.js"
   node "$SWARM" join "{name or e.g. Codex-Bob}" {caps or e.g. backend,api}
 
-Then loop: `node "$SWARM" inbox` → `node "$SWARM" next` → `claim` → DO THE REAL WORK
-in the repo → `node "$SWARM" done <id> "<result>"`. Repeat until inbox/next are empty.
+Then loop CONTINUOUSLY — do not stop, do not wait for me:
+  node "$SWARM" inbox  → node "$SWARM" next  → claim <id>  → DO THE REAL WORK in the repo
+  (edit files, run tests)  → node "$SWARM" done <id> "<what you did>"  → back to inbox.
+If nothing to do: `sleep 5` and check inbox/next again. New tasks arrive any time.
+You can only `done` a task you have claimed. Post progress with `node "$SWARM" room "..."`.
 ─────────────────────────────────────────────
 ```
 

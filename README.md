@@ -86,7 +86,8 @@ Then open **http://localhost:7379** in any browser.
 ### Team + tasks
 | Command | Action |
 |---------|--------|
-| `/swarm init` | Initialize `.swarm/` in current repo |
+| `/task add "<title>" [priority] [tags]` | **Quick add** a task to the board from any chat (any worker picks it up) |
+| `/swarm init` | Initialize `.swarm/` + create a GitHub repo for the project (agents sync through it) |
 | `/swarm join [name] [caps]` | Register this agent |
 | `/swarm status` | Show team, tasks, messages |
 | `/swarm task "title" [priority] [tags]` | Create a task on the board |
@@ -210,15 +211,16 @@ Two background Claude agents, no API key. Idle = zero tokens.
 /swarm worker codex "Cara" frontend,testing
 ```
 
-### 4. Send work — from chat or the dashboard
+### 4. Send work — from any chat or the dashboard
 
 ```
-/swarm task "Build the login form" high frontend
-/swarm task "Add the /api/login endpoint" high backend
+/task add "Build the login form" high frontend
+/task add "Add the /api/login endpoint" high backend
 ```
 
-…or type the task into the dashboard's Tasks input. The lead distributes, or an idle worker
-claims it off the board. Each task lands in the right agent by capability (`frontend` → Cara,
+`/task add` works from any chat. Or type the task into the dashboard's Tasks input. Workers
+poll every ~5s and grab a matching task the instant it appears (idle = zero LLM calls), so
+there's no waiting. Each task lands in the right agent by capability (`frontend` → Cara,
 `backend` → Bob).
 
 ### 5. Watch them collaborate
