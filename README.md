@@ -63,21 +63,19 @@ See **Demo: Claude + Codex** below for the full walkthrough.
 
 ## Quick start
 
-```
-/swarm init                                     # Initialize in any git repo
-/swarm task "Build login endpoint" high backend # Create a task
-/swarm status                                   # See team + tasks
-/swarm claim <task-id>                          # Grab a task
-/swarm done "Implemented POST /auth/login"      # Mark complete
-```
+In Claude Code, inside your repo:
 
-Start the full stack (WebSocket relay + HTML dashboard):
+```
+/swarm init                                  # .swarm/ + GitHub repo for the project
+/swarm start                                 # control panel at http://localhost:7379
+/swarm worker claude "Alice" coordination    # background lead (first worker = lead)
+/swarm worker claude "Bob" backend,api       # background worker
 
-```bash
-node start.js /path/to/your-repo
+/task add "Build login endpoint" high backend   # drop work — Bob grabs it in seconds
 ```
 
-Then open **http://localhost:7379** in any browser.
+Watch it live in the dashboard (**http://localhost:7379**) or `/swarm room`.
+Stop everything: `/swarm stop`.
 
 ---
 
@@ -124,27 +122,27 @@ an open one first) and can't claim another agent's task. Idle workers make **zer
 
 ---
 
-## Stack
+## Stack (under the hood)
+
+All processes go through the detached, idempotent launcher — PID + logs in `.swarm/.run/`:
 
 ```bash
-node start.js [swarm-root] [--ws-port 9377] [--dash-port 7379] [--no-dash]
+node lib/launch.js stack     [root]                          # WS relay + dashboard
+node lib/launch.js worker <provider> [root] "<name>" <caps>  # background agent daemon
+node lib/launch.js status    [root]                          # what's running + health
+node lib/launch.js stop      [root]                          # stop everything
 ```
-
-Starts two processes:
 
 | Process | Default port | What it does |
 |---------|-------------|--------------|
 | `lib/server.js` | 9377 | WebSocket relay — real-time agent messaging |
-| `dashboard/web.js` | 7379 | HTTP server — HTML dashboard at localhost:7379 |
+| `dashboard/web.js` | 7379 | Control panel — tasks, inject, message flow |
+| `lib/runner.js` | — | Background agent loop (one per worker) |
 
-The WS server writes its URL to `.swarm/.server-url`. Adapters read this on startup — no manual env var needed.
-
-Run processes separately if preferred:
-
-```bash
-node lib/server.js [port] [swarm-root]       # WS relay only
-node dashboard/web.js [port] [swarm-root]    # HTML dashboard only
-```
+Workers poll every **5s** for instant pickup; git pull/push runs on a slower cadence
+(`SWARM_SYNC_SECONDS`, default 30s) and only when something changed — idle ticks cost
+**zero** LLM calls and zero network. The WS server writes its URL to `.swarm/.server-url`
+for auto-discovery.
 
 ---
 
@@ -279,11 +277,17 @@ LLM agents (Codex/Gemini) can also split from inside a cycle:
 ├── tasks/
 │   └── task-{uuid}.yaml    # One file per task
 ├── claims/
-│   └── claim-{task}-{agent}-{ts}.yaml   # Claim tickets
-├── messages/
-│   └── {ts}-{agentid}.yaml # One file per message
-└── escalations/
-    └── esc-{uuid}.yaml     # Pending human decisions
+│   └── claim-{task}-{agent}-{ts}.yaml   # Claim tickets (race-safe)
+├── room/                    # Common room — shared chat all agents read
+│   └── {ts}-{agentid}.yaml
+├── io/                      # Per-agent message queues
+│   └── {agent-uuid}/
+│       ├── inbox/           # Messages TO this agent (processed/ after handling)
+│       └── outbox/          # What this agent produced
+├── messages/                # Flat mirror (dashboard + history)
+├── escalations/
+│   └── esc-{uuid}.yaml     # Pending human decisions
+└── .run/                    # Worker/server PIDs + logs (not committed)
 ```
 
 ### Design decisions
@@ -313,16 +317,17 @@ priority         : critical=1.0  high=0.75  medium=0.5  low=0.25
 
 ## Features
 
-- **Capability-based task routing** — best agent gets the task
+- **Background agent daemons** — Claude (`claude -p`), Codex, Gemini run continuously, no API key needed for Claude/Codex CLI
+- **Fast pickup, zero idle cost** — 5s polling grabs tasks instantly; idle = no LLM call, no network
+- **Common room** — shared chat every agent reads; agents announce, ask, and coordinate there
+- **Inbox/outbox** — per-agent message queues; inject into any agent from CLI or dashboard
+- **Rule enforcement in code** — agents can't complete unassigned tasks or steal others' work
+- **Capability-based routing** — lead auto-distributes; idle workers self-claim matching board tasks
 - **Conflict-free claiming** — claim ticket files, winner = earliest timestamp
 - **Credit failover** — agent out of credits → tasks auto-reassigned
-- **Priority preemption** — critical task arrives → suggests pausing lower-priority work
 - **Escalation protocol** — security issues, scope changes, decisions → human queue
-- **WebSocket relay** — RFC 6455, zero deps, rate-limited, room support
-- **Hybrid mode** — WS for messages + git for state
-- **HTML dashboard** — browser-based, auto-refresh, no npm install
-- **LLM agent context** — `adapters/CODEX.md` gives agents strict operational rules
-- **Auto server discovery** — adapters read `.swarm/.server-url`, no manual config
+- **Control panel** — create tasks, message agents, watch live flow; zero npm deps
+- **Token-lean** — compact strict system prompt (~250 tokens), live state only in user message
 
 ---
 
@@ -335,31 +340,40 @@ skil/
 │   ├── git-sync.js              # Git pull/push with retry + backoff
 │   ├── agent-registry.js        # Agent CRUD, health, credit failover
 │   ├── task-manager.js          # Task CRUD, scoring, claim tickets
-│   ├── message-bus.js           # Git-based messaging + auto-protocol
+│   ├── message-bus.js           # Flat messaging mirror + types
+│   ├── io-bus.js                # Inbox/outbox queues + common room
 │   ├── hierarchy.js             # Team structure, lead election
+│   ├── orchestrator.js          # Lead task distribution (delegation brain)
+│   ├── orchestrator-cli.js      # CLI over the orchestrator
+│   ├── actions.js               # Parse + apply ##SWARM:..## markers (rule-enforced)
+│   ├── runner.js                # Background agent daemon loop
+│   ├── launch.js                # Detached launcher (server/dashboard/workers)
+│   ├── swarm-cli.js             # Full CLI for driven agents (join/claim/done/room/…)
+│   ├── drivers/                 # LLM drivers: claude (-p), codex, gemini, fake
 │   ├── conflict-resolver.js     # First-push-wins race resolution
 │   ├── agent-loop.js            # Sync cycle, escalation, preemption
 │   ├── realtime.js              # WebSocket server/client (RFC 6455)
 │   ├── realtime-message-bus.js  # Persistent WS connection wrapper
 │   └── server.js                # Standalone WS relay entry point
 ├── dashboard/
-│   ├── web.js                   # HTML dashboard server (no npm deps)
+│   ├── web.js                   # Control panel (HTML, no npm deps)
 │   └── index.js                 # TUI dashboard (blessed, legacy)
 ├── hooks/                       # Claude Code hooks
 │   ├── swarm-config.js          # Shared utils
 │   ├── swarm-init.js            # SessionStart hook
-│   └── swarm-sync.js            # UserPromptSubmit hook
-├── skills/swarm/
-│   └── SKILL.md                 # All /swarm commands + behavior rules
+│   └── swarm-sync.js            # UserPromptSubmit hook (auto-distribute + surface msgs)
+├── skills/
+│   ├── swarm/SKILL.md           # All /swarm commands + behavior rules
+│   ├── swarm/SWARM-AGENT.md     # Paste-prompt guide for driven CLI agents
+│   └── task/SKILL.md            # /task add — quick board entry from any chat
 ├── adapters/
-│   ├── codex-wrapper.py         # OpenAI/Codex adapter (stdlib only)
-│   ├── gemini-wrapper.py        # Google Gemini adapter (stdlib only)
-│   ├── CODEX.md                 # Strict LLM agent operational guide
+│   ├── codex-wrapper.py         # OpenAI/Codex API adapter (stdlib only)
+│   ├── gemini-wrapper.py        # Google Gemini API adapter (stdlib only)
+│   ├── CODEX.md                 # Strict operational guide for driven agents
 │   └── adapter-protocol.md     # How to write new adapters
-├── .claude-plugin/
-│   ├── plugin.json              # Hook registration
-│   └── marketplace.json         # Marketplace listing
-├── start.js                     # Full-stack launcher (WS + dashboard)
+├── .claude-plugin/              # Plugin metadata (hooks registration)
+├── link-skill.ps1               # Dev-mode junction setup (instant skill updates)
+├── start.js                     # Legacy full-stack launcher (use lib/launch.js)
 └── CLAUDE.md                    # Codebase instructions
 ```
 
@@ -370,15 +384,20 @@ skil/
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SWARM_ROOT` | cwd | Swarm repo root path |
-| `SWARM_TRANSPORT` | `git` | Transport: `git`, `http`, `hybrid` |
-| `SWARM_SERVER_URL` | auto | WebSocket server URL (auto-read from `.swarm/.server-url`) |
+| `SWARM_DRIVER` | per-provider | `fake` = test all flows with zero LLM calls |
+| `SWARM_SYNC_SECONDS` | `30` | Git pull/push cadence for workers (local poll is 5s) |
+| `SWARM_DRIVER_TIMEOUT` | `180000` | Max ms per LLM call |
+| `SWARM_CLAUDE_FLAGS` | `-p --output-format text` | Flags for the Claude headless driver |
+| `SWARM_CODEX_BIN` | auto | Path to codex.exe (auto-found off PATH) |
+| `SWARM_CODEX_MODEL` | from `~/.codex/config.toml` | Model for the codex driver |
+| `SWARM_CODEX_EFFORT` | `low` | Codex reasoning effort per tick |
 | `SWARM_SERVER_PORT` | `9377` | WS relay port |
-| `SWARM_DASH_PORT` | `7379` | HTML dashboard port |
+| `SWARM_DASH_PORT` | `7379` | Control panel port |
 | `SWARM_SERVER_TOKEN` | none | Auth token for WS server |
 | `SWARM_AGENT_NAME` | hostname | Agent display name |
 | `SWARM_CAPABILITIES` | none | Comma-separated capabilities |
-| `CODEX_API_KEY` | — | OpenAI API key for Codex adapter |
-| `GEMINI_API_KEY` | — | Google AI API key for Gemini adapter |
+| `CODEX_API_KEY` / `OPENAI_API_KEY` | — | Only for the **API** codex path |
+| `GEMINI_API_KEY` | — | Gemini API (or install the gemini CLI) |
 
 ---
 
