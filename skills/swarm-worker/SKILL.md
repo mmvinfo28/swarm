@@ -1,48 +1,75 @@
 ---
 name: swarm-worker
 description: >
-  Add a background AI worker to the swarm — Claude, Codex, or Gemini — with no API key
-  (runs on the CLI's own plan). Use when the user types /swarm-worker, or says "add a worker",
-  "add codex/claude/gemini to the team", "spin up an agent".
+  Add a worker to the swarm. Claude joins automatically as a headless background daemon;
+  Codex/Gemini get a ready-to-paste prompt for their own CLI (so they work IN the repo and
+  edit files). Use when the user types /swarm-worker, or says "add a worker", "add codex/claude
+  to the team", "spin up an agent".
 ---
 
-# /swarm-worker — add a background agent
-
-Spawn one detached worker daemon. It loops: read inbox → reason → act, and only calls the
-LLM when there is real work (idle = zero tokens).
+# /swarm-worker — add a worker
 
 **Args:** `<provider> <name> [capabilities]`
-- `provider` = `claude` | `codex` | `gemini` (default `claude` if omitted)
-- `name` = the agent's display name
-- `capabilities` = comma-separated tags (e.g. `frontend,testing`)
+- `provider` = `claude` | `codex` | `gemini` (default `claude`)
+- `name` = display name · `capabilities` = comma-separated tags
 
-## What to run
+How a worker joins depends on the provider:
 
-The swarm library lives in the sibling `swarm` skill. Resolve the launcher relative to this
-skill's base directory (shown in the "Base directory for this skill:" line):
+## Claude → automatic background daemon
 
-```
-node "{skillDir}/../swarm/lib/launch.js" worker <provider> {swarmRoot} "<name>" <caps>
-```
-
-`{swarmRoot}` = the current repo (the one with `.swarm/`). If there is no `.swarm/` yet, tell
-the user to run `/swarm` first.
-
-Run it with a short timeout — it returns immediately (detached). Then tell the user the worker
-started and how to watch it (dashboard at http://localhost:7379, or `/swarm room`).
-
-## Examples
+`claude -p` runs well headless, so just spawn the daemon:
 
 ```
-/swarm-worker codex Cara frontend,testing
-/swarm-worker claude Bob backend,api
-/swarm-worker gemini Gus docs
-/swarm-worker claude Alice            # claude worker, no caps
+node "{skillDir}/../swarm/lib/launch.js" worker claude {swarmRoot} "<name>" <caps>
 ```
+
+Returns immediately (detached). Tell the user it's running and to watch the dashboard
+(http://localhost:7379). First worker becomes the lead.
+
+## Codex / Gemini → paste-prompt (works IN the repo)
+
+Do **not** auto-spawn a headless daemon for codex/gemini — their `exec` runs read-only and
+can't edit files. Instead, the user pastes a prompt into their own Codex/Gemini CLI, where the
+agent works in the repo folder (edits files, runs tests), auto-registers, and loops.
+
+Print this block, filling in absolute `{skillDir-of-swarm}` (the sibling `swarm` skill dir) and
+`{swarmRoot}`:
+
+```
+Paste this into your Codex (or Gemini) CLI, opened in the repo folder:
+─────────────────────────────────────────────
+Read "{skillDir-of-swarm}/SWARM-AGENT.md" and act as a swarm agent named "<name>".
+
+Setup (auto-registers; works in THIS repo):
+  cd "{swarmRoot}"
+  set SWARM="{skillDir-of-swarm}/lib/swarm-cli.js"
+  node "%SWARM%" join "<name>" <caps>
+
+Then loop CONTINUOUSLY — do not stop, do not wait for me:
+  node "%SWARM%" inbox  →  node "%SWARM%" next  →  claim <id>
+  →  DO THE REAL WORK in the repo (edit files, run tests)
+  →  node "%SWARM%" done <id> "<what you did>"  →  back to inbox.
+If nothing to do: wait ~5s and check inbox/next again. New tasks arrive any time.
+Rules: you can only `done` a task you claimed; post progress with `node "%SWARM%" room "..."`.
+─────────────────────────────────────────────
+```
+
+(On macOS/Linux use `export SWARM=…` and `$SWARM` instead of `set` / `%SWARM%`.)
+
+Then tell the user: paste it into the Codex CLI; verify with `/swarm status`.
+
+## Want codex fully automatic anyway?
+
+Possible but limited — headless `codex exec` is sandboxed read-only (results into task YAML,
+no file edits):
+
+```
+node "{skillDir}/../swarm/lib/launch.js" worker codex {swarmRoot} "<name>" <caps>
+```
+
+Use this only for analysis/answer tasks, not for editing the codebase.
 
 ## Notes
-
-- **Claude / Codex CLI = no API key** (uses your plan). Gemini needs the gemini CLI or `GEMINI_API_KEY`.
-- First worker to join becomes the **lead** (auto-distributes tasks).
-- Stop workers from the dashboard (Stop workers button) or `/swarm-stop`.
-- Test with zero tokens: prefix `SWARM_DRIVER=fake`.
+- Claude / Codex CLI use **your plan, no API key**. Gemini needs the gemini CLI or `GEMINI_API_KEY`.
+- `{swarmRoot}` = the repo with `.swarm/`. If missing, run `/swarm` first.
+- Stop workers from the dashboard (Stop workers) or `/swarm-stop`.
