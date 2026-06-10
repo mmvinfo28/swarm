@@ -79,22 +79,24 @@ if (Test-Path $target) {
     }
 }
 
-# ── Step 3: Junction the sibling `task` skill (/task add ...) ────────────────
+# ── Step 3: Junction every sibling skill (task, swarm-worker, swarm-stop, …) ──
+# `swarm` itself was handled above (it has the inner lib/dashboard junctions).
 
-$taskSrc = Join-Path $repo "skills\task"
-$taskTarget = Join-Path $claude "skills\task"
-if (Test-Path $taskSrc) {
-    if (Test-Path $taskTarget) {
-        $tattr = (Get-Item $taskTarget -Force).Attributes
-        if (-not ($tattr -band [System.IO.FileAttributes]::ReparsePoint)) {
-            Remove-Item $taskTarget -Recurse -Force
-            cmd /c mklink /J "$taskTarget" "$taskSrc" | Out-Null
-            Write-Host "  [ok]   $taskTarget -> $taskSrc" -ForegroundColor Green
-        } else { Write-Host "  [skip] task skill already a junction" }
-    } else {
-        cmd /c mklink /J "$taskTarget" "$taskSrc" | Out-Null
-        Write-Host "  [ok]   $taskTarget -> $taskSrc" -ForegroundColor Green
+foreach ($dir in Get-ChildItem (Join-Path $repo "skills") -Directory) {
+    if ($dir.Name -eq "swarm") { continue }
+    $src = $dir.FullName
+    $dst = Join-Path $claude ("skills\" + $dir.Name)
+    if (Test-Path $dst) {
+        $a = (Get-Item $dst -Force).Attributes
+        if ($a -band [System.IO.FileAttributes]::ReparsePoint) {
+            Write-Host "  [skip] $($dir.Name) already a junction"
+            continue
+        }
+        Remove-Item $dst -Recurse -Force
     }
+    cmd /c mklink /J "$dst" "$src" | Out-Null
+    if ($LASTEXITCODE -eq 0) { Write-Host "  [ok]   skills\$($dir.Name) -> repo" -ForegroundColor Green }
+    else { Write-Host "  [fail] $($dir.Name)" -ForegroundColor Red }
 }
 
 Write-Host ""

@@ -12,7 +12,36 @@ description: >
 You are part of a swarm team. Multiple AI agents collaborate on the same codebase.
 Your actions affect the whole team. Coordinate, don't duplicate work.
 
-## Commands
+## The 4 commands a human types
+
+Everything else is a subcommand or happens automatically. The previewable slash commands are:
+
+| Command | Does |
+|---------|------|
+| `/swarm` | **Start everything + show status** (the everyday entry point) |
+| `/swarm-worker <provider> <name> [caps]` | Add a Claude/Codex/Gemini worker |
+| `/task add "<title>" [priority] [tags]` | Drop a task on the board from any chat |
+| `/swarm-stop` | Stop all swarm processes |
+
+`/swarm <subcommand>` (claim, done, msg, room, delegate, …) still works for power use and is
+how the agents themselves act — see the full table below. Most humans only need the 4 above
+plus the dashboard at http://localhost:7379.
+
+## Default: `/swarm` with no subcommand = start + status
+
+When the user runs `/swarm` (no args), or `/swarm start` / `/swarm up`:
+
+1. If there is no `.swarm/` in the repo → initialize it (see **Initialization** below).
+2. Start the stack: `node {skillDir}/lib/launch.js stack {swarmRoot}` (server + dashboard, idempotent).
+3. Ensure a Claude **lead** worker is running:
+   `node {skillDir}/lib/launch.js worker claude {swarmRoot} "<git user name or 'Lead'>" coordination,review`
+   (first worker becomes lead; idempotent — won't double-start).
+4. Show team status and the dashboard URL: "Swarm up. Control panel: http://localhost:7379.
+   Add workers with `/swarm-worker`, drop tasks with `/task add`, stop with `/swarm-stop`."
+
+When the user runs `/swarm status` → just show status (do not start anything).
+
+## Commands (full — subcommands of `/swarm`)
 
 | Command | Action |
 |---------|--------|
