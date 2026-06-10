@@ -96,6 +96,30 @@ function createTaskFromPanel(title, priority, tags) {
   return t;
 }
 
+function controlAgent(id, action, value) {
+  const reg = require(path.join(__dirname, '..', 'lib', 'agent-registry'));
+  const hi = require(path.join(__dirname, '..', 'lib', 'hierarchy'));
+  const agent = reg.getAgent(swarmRoot, id);
+  if (!agent) throw new Error('agent not found');
+  if (action === 'lead') { hi.setLead(swarmRoot, id); return { ok: true }; }
+  if (action === 'pause') { reg.patch(swarmRoot, id, { paused: true }); return { ok: true }; }
+  if (action === 'resume') {
+    const fix = { paused: false, calls: 0 };
+    if (agent.status === 'credits_exhausted' || agent.status === 'error') fix.status = 'idle';
+    reg.patch(swarmRoot, id, fix); return { ok: true };
+  }
+  if (action === 'caps') {
+    const caps = String(value || '').split(',').map(s => s.trim()).filter(Boolean);
+    reg.patch(swarmRoot, id, { capabilities: caps }); return { ok: true, capabilities: caps };
+  }
+  if (action === 'role') { hi.assignRole(swarmRoot, id, String(value)); return { ok: true }; }
+  if (action === 'budget') {
+    const n = parseInt(value, 10) || 0; // 0 = unlimited
+    reg.patch(swarmRoot, id, { max_calls: n }); return { ok: true, max_calls: n };
+  }
+  throw new Error('unknown agent action: ' + action);
+}
+
 function controlAction(action) {
   const launch = require(path.join(__dirname, '..', 'lib', 'launch'));
   if (action === 'stop-workers') {
@@ -134,6 +158,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
 #refresh-time{font-size:11px;color:var(--muted)}
 .rbtn{margin-left:auto;background:var(--bg3);border:1px solid var(--border);color:var(--muted);padding:3px 10px;cursor:pointer;border-radius:4px;font-family:inherit;font-size:12px}
 .rbtn:hover{border-color:var(--blue);color:var(--blue)}
+.actrl{display:flex;gap:3px;margin-top:3px;flex-wrap:wrap}
+.abtn{background:var(--bg3);border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:10px;padding:1px 6px;border-radius:3px;cursor:pointer}
+.abtn:hover{border-color:var(--blue);color:var(--blue)}
+.abtn.lead{border-color:var(--yellow);color:var(--yellow);cursor:default}
+.abtn.on{border-color:var(--green);color:var(--green)}
 
 /* ── Grid ── */
 #grid{display:grid;grid-template-columns:2fr 3fr;grid-template-rows:1fr 1fr;flex:1;gap:1px;background:var(--border);overflow:hidden}
@@ -243,9 +272,20 @@ function renderTeam(state){
   const lead=(state.hierarchy||{}).lead;
   const sdot=s=>{const m={idle:'s-idle',working:'s-working',reviewing:'s-reviewing',offline:'s-offline',credits_exhausted:'s-credits_exhausted',error:'s-error'};return'<span class="adot '+(m[s]||'s-offline')+'"></span>'};
   const row=a=>{
-    const caps=Array.isArray(a.capabilities)?a.capabilities.slice(0,4).join(', '):'';
+    const caps=Array.isArray(a.capabilities)?a.capabilities.join(','):'';
     const task=a.current_task?'<div class="atask">&#8594; task:'+e(shortId(a.current_task))+'</div>':'';
-    return'<div class="agent">'+sdot(a.status)+'<div style="flex:1"><div class="aname">'+e(a.name)+'<span style="color:var(--muted);font-weight:400;font-size:11px"> ['+e(a.provider)+']</span></div><div class="ameta">'+e(a.status)+(caps?' &middot; '+e(caps):'')+'</div>'+task+'</div></div>'
+    const budget=a.max_calls?((a.calls||0)+'/'+a.max_calls):(a.calls?((a.calls)+''):'');
+    const meta=e(a.paused?'paused':a.status)+(caps?' &middot; '+e(caps):'')+(budget?' &middot; '+budget+' calls':'');
+    const isLead=a.id===lead;
+    const b=(act,label,extra)=>'<button class="abtn'+(extra||'')+'" onclick="doAgent(\''+a.id+'\',\''+act+'\')">'+label+'</button>';
+    const bp=(act,label,cur)=>'<button class="abtn" onclick="doAgentPrompt(\''+a.id+'\',\''+act+'\',\''+e(cur||'')+'\')">'+label+'</button>';
+    const ctrls='<div class="actrl">'
+      +(isLead?'<span class="abtn lead">&#9733; lead</span>':b('lead','&#9733; lead'))
+      +(a.paused?b('resume','&#9654; resume',' on'):b('pause','&#9208; pause'))
+      +bp('caps','caps',caps)
+      +bp('budget','budget',a.max_calls||'')
+      +'</div>';
+    return'<div class="agent">'+sdot(a.status)+'<div style="flex:1"><div class="aname">'+e(a.name)+'<span style="color:var(--muted);font-weight:400;font-size:11px"> ['+e(a.provider)+']</span></div><div class="ameta">'+meta+'</div>'+task+ctrls+'</div></div>'
   };
   const groups=[
     {lbl:'Lead',f:a=>a.id===lead||roles[a.id]==='lead'},
@@ -402,6 +442,18 @@ async function fetchState(){
   }
 }
 
+function postAgent(id,action,value){
+  return fetch('/api/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,action:action,value:value})})
+    .then(r=>r.json()).then(()=>fetchState()).catch(e=>alert('Failed: '+e.message));
+}
+function doAgent(id,action){ postAgent(id,action); }
+function doAgentPrompt(id,action,cur){
+  const label=action==='budget'?'Max LLM calls before auto-pause (0 = unlimited):':'Capabilities (comma-separated):';
+  const v=prompt(label,cur||'');
+  if(v===null)return;
+  postAgent(id,action,v);
+}
+
 function doControl(action,confirmMsg){
   if(!confirm(confirmMsg))return;
   fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:action})})
@@ -451,6 +503,25 @@ const server = http.createServer((req, res) => {
         const msg = injectMessage(agent, text);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, msg }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Per-agent control: make lead, pause/resume, edit capabilities/role, set call budget.
+  if (req.url === '/api/agent' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const { id, action, value } = JSON.parse(body || '{}');
+        if (!id || !action) throw new Error('id and action required');
+        const r = controlAgent(id, action, value);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: err.message }));
