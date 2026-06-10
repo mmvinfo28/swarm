@@ -1,0 +1,5 @@
+project: .swarm-test
+created_at: "2026-06-10T19:16:02.630Z"
+transport: git
+sync_interval: 15
+max_tasks_per_agent: 3

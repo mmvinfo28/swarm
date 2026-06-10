@@ -1,0 +1,9 @@
+id: a1bba237-5943-42b7-8562-d3004e446f19
+name: Worker-12320
+provider: claude
+owner: runner
+capabilities: []
+status: idle
+current_task: null
+last_seen: "2026-06-10T19:16:44.848Z"
+joined_at: "2026-06-10T19:16:44.031Z"
