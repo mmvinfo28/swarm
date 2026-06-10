@@ -96,6 +96,21 @@ function createTaskFromPanel(title, priority, tags) {
   return t;
 }
 
+function controlAction(action) {
+  const launch = require(path.join(__dirname, '..', 'lib', 'launch'));
+  if (action === 'stop-workers') {
+    const stopped = launch.stopWorkers(swarmRoot);
+    return { ok: true, stopped };
+  }
+  if (action === 'stop-all') {
+    const stopped = launch.stopWorkers(swarmRoot);
+    // Kill the rest (server + this dashboard) after the response flushes.
+    setTimeout(() => { try { launch.stop(swarmRoot); } catch (_) {} process.exit(0); }, 600);
+    return { ok: true, stopping: 'all', workers: stopped };
+  }
+  throw new Error('unknown action: ' + action);
+}
+
 // ─── HTML ────────────────────────────────────────────────────────────────────
 
 const HTML = `<!DOCTYPE html>
@@ -181,6 +196,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
     <span class="sep">|</span>
     <span><span class="dot spin" id="conn-dot"></span><span id="conn-txt" style="font-size:11px">connecting</span></span>
     <button class="rbtn" onclick="fetchNow()">&#8635; Refresh</button>
+    <button class="rbtn" style="border-color:var(--yellow);color:var(--yellow)" onclick="doControl('stop-workers','Stop all LLM workers? (server + dashboard stay up)')">&#9209; Stop workers</button>
+    <button class="rbtn" style="border-color:var(--red);color:var(--red)" onclick="doControl('stop-all','Stop EVERYTHING (workers + server + dashboard)?')">&#9632; Stop all</button>
     <span class="refresh-time" id="rtime"></span>
   </div>
   <div id="grid">
@@ -385,6 +402,15 @@ async function fetchState(){
   }
 }
 
+function doControl(action,confirmMsg){
+  if(!confirm(confirmMsg))return;
+  fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:action})})
+    .then(r=>r.json()).then(j=>{
+      if(action==='stop-all'){document.body.innerHTML='<div style="padding:40px;font-family:monospace;color:#e6edf3">Swarm stopped. You can close this tab.</div>';}
+      else{const n=(j.stopped||[]).length;alert(n?('Stopped '+n+' worker(s): '+j.stopped.join(', ')):'No workers running.');fetchState();}
+    }).catch(e=>alert('Control failed: '+e.message));
+}
+
 function fetchNow(){
   document.getElementById('conn-dot').className='dot spin';
   document.getElementById('conn-txt').textContent='refreshing…';
@@ -425,6 +451,24 @@ const server = http.createServer((req, res) => {
         const msg = injectMessage(agent, text);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, msg }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Process control (stop workers / stop everything) — e.g. when an LLM runs out of tokens.
+  if (req.url === '/api/control' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const { action } = JSON.parse(body || '{}');
+        const r = controlAction(action);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: err.message }));
