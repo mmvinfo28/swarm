@@ -165,11 +165,18 @@ def _serialize_value(val):
 
 # --- Git operations ---
 
+# On Windows, hide the console window each subprocess would otherwise flash.
+_NO_WINDOW = 0
+if os.name == "nt":
+    _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
 def git(cmd):
     try:
         result = subprocess.run(
             f"git {cmd}", shell=True, cwd=SWARM_ROOT,
-            capture_output=True, text=True, timeout=30
+            capture_output=True, text=True, timeout=30,
+            creationflags=_NO_WINDOW,
         )
         return result.stdout.strip()
     except Exception:
@@ -776,7 +783,8 @@ def run_distribute(agent_id):
     try:
         result = subprocess.run(
             [node, cli, "distribute", SWARM_ROOT, agent_id],
-            capture_output=True, text=True, timeout=30
+            capture_output=True, text=True, timeout=30,
+            creationflags=_NO_WINDOW,
         )
         out = (result.stdout or "").strip()
         if out:

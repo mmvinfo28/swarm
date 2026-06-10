@@ -62,6 +62,7 @@ function launch(label, scriptPath, args, color) {
     cwd: swarmRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, SWARM_ROOT: swarmRoot },
+    windowsHide: true,
   });
 
   child.stdout.on('data', d => process.stdout.write(prefix + d.toString().replace(/\n/g, '\n' + prefix)));
