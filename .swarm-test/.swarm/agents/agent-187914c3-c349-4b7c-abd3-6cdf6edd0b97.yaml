@@ -1,0 +1,10 @@
+id: 187914c3-c349-4b7c-abd3-6cdf6edd0b97
+name: Cara
+provider: codex
+owner: runner
+capabilities:
+  - frontend
+status: idle
+current_task: null
+last_seen: "2026-06-10T19:17:42.556Z"
+joined_at: "2026-06-10T19:17:41.826Z"
