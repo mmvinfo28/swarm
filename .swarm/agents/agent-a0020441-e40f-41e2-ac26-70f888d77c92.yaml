@@ -1,0 +1,10 @@
+id: a0020441-e40f-41e2-ac26-70f888d77c92
+name: Worker-78428
+provider: claude
+owner: runner
+capabilities: []
+status: working
+current_task: null
+last_seen: "2026-06-11T23:40:35.322Z"
+joined_at: "2026-06-11T23:38:50.476Z"
+calls: 1
