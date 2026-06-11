@@ -122,13 +122,16 @@ function controlAgent(id, action, value) {
 
 function controlAction(action) {
   const launch = require(path.join(__dirname, '..', 'lib', 'launch'));
+  const ioBusLib = require(path.join(__dirname, '..', 'lib', 'io-bus'));
   if (action === 'stop-workers') {
+    ioBusLib.setStopped(swarmRoot);
     const stopped = launch.stopWorkers(swarmRoot);
     return { ok: true, stopped };
   }
   if (action === 'stop-all') {
+    ioBusLib.setStopped(swarmRoot);
     const stopped = launch.stopWorkers(swarmRoot);
-    // Kill the rest (server + this dashboard) after the response flushes.
+    // Keep dashboard alive briefly to flush response, then stop everything.
     setTimeout(() => { try { launch.stop(swarmRoot); } catch (_) {} process.exit(0); }, 600);
     return { ok: true, stopping: 'all', workers: stopped };
   }
@@ -184,7 +187,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
 .trow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .pbadge{font-size:10px;padding:1px 6px;border-radius:3px;font-weight:700;flex-shrink:0}
 .p-critical{background:rgba(248,81,73,.15);color:var(--red)}.p-high{background:rgba(210,153,34,.15);color:var(--yellow)}.p-medium{background:rgba(88,166,255,.1);color:var(--blue)}.p-low{background:rgba(139,148,158,.1);color:var(--muted)}
-.tname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tname{flex:1;min-width:0;white-space:normal;word-wrap:break-word;overflow-wrap:break-word}
 .twho{color:var(--purple);font-size:11px;flex-shrink:0}
 .ttags{color:var(--muted);font-size:11px;margin-top:2px;padding-left:2px}
 
@@ -192,7 +195,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
 .sh{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:8px 0 3px;padding-bottom:3px;border-bottom:1px solid var(--border)}
 
 /* ── Message ── */
-.msg{padding:3px 0;border-bottom:1px solid rgba(48,54,61,.4);font-size:12px;line-height:1.4}.msg:last-child{border-bottom:none}
+.msg{padding:3px 0;border-bottom:1px solid rgba(48,54,61,.4);font-size:12px;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word}.msg:last-child{border-bottom:none}
 .mt{color:var(--muted);margin-right:5px;font-size:11px}.mf{color:var(--blue)}.mto{color:var(--purple)}.marr{color:var(--border);margin:0 2px}.mbody{color:var(--text)}
 
 /* ── Escalation ── */
@@ -210,6 +213,23 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
 /* ── Misc ── */
 .empty{color:var(--muted);padding:16px 0;text-align:center;font-style:italic;font-size:12px}
 .tag-green{color:var(--green)}.tag-blue{color:var(--blue)}.tag-red{color:var(--red)}.tag-yellow{color:var(--yellow)}
+
+/* ── Commands overlay ── */
+#cmd-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:50;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px}
+#cmd-ov.show{display:flex}
+.cmd-box{background:var(--bg2);border:1px solid var(--border);border-radius:8px;max-width:760px;width:100%;padding:18px 22px}
+.cmd-box h2{font-size:15px;color:var(--blue);margin-bottom:4px;letter-spacing:.04em}
+.cmd-box h3{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:16px 0 6px;border-bottom:1px solid var(--border);padding-bottom:3px}
+.cmd-sub{color:var(--muted);font-size:12px;margin-bottom:8px}
+.cmd-close{float:right;background:var(--bg3);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer;font-family:inherit;font-size:12px;padding:2px 9px}
+.cmd-close:hover{border-color:var(--red);color:var(--red)}
+.cmd-onboard{background:var(--bg);border:1px solid var(--green);border-radius:6px;padding:10px 12px;margin-bottom:6px}
+.cmd pre,.cmd-onboard pre{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:8px 10px;overflow-x:auto;font-family:inherit;font-size:12px;color:var(--text);white-space:pre-wrap;word-break:break-word;margin:4px 0}
+.cmd-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.cmd-tbl td{padding:3px 8px;border-bottom:1px solid rgba(48,54,61,.5);vertical-align:top}
+.cmd-tbl td:first-child{color:var(--blue);white-space:nowrap;font-weight:600}
+.cmd-tbl td:last-child{color:var(--muted)}
+.k{color:var(--green)}
 </style>
 </head>
 <body>
@@ -224,6 +244,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
     <span class="stat" id="h-tasks">tasks: <b>—</b></span>
     <span class="sep">|</span>
     <span><span class="dot spin" id="conn-dot"></span><span id="conn-txt" style="font-size:11px">connecting</span></span>
+    <button class="rbtn" style="border-color:var(--green);color:var(--green)" onclick="toggleCommands(true)">&#9881; Commands</button>
     <button class="rbtn" onclick="fetchNow()">&#8635; Refresh</button>
     <button class="rbtn" style="border-color:var(--yellow);color:var(--yellow)" onclick="doControl('stop-workers','Stop all LLM workers? (server + dashboard stay up)')">&#9209; Stop workers</button>
     <button class="rbtn" style="border-color:var(--red);color:var(--red)" onclick="doControl('stop-all','Stop EVERYTHING (workers + server + dashboard)?')">&#9632; Stop all</button>
@@ -251,6 +272,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
         <input id="inj-text" placeholder="inject a message…" style="flex:1;min-width:0;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:11px;padding:3px 6px" onkeydown="if(event.key==='Enter')doInject()"/>
         <button onclick="doInject()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 10px">Send</button>
       </div>
+      <div style="display:flex;gap:4px;padding:4px 10px;border-bottom:1px solid var(--border);background:var(--bg2);font-size:11px;align-items:center">
+        <span style="color:var(--muted)">Filter:</span>
+        <select id="flt-agent" onchange="applyMsgFilter()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:2px"><option value="">all agents</option></select>
+        <select id="flt-type" onchange="applyMsgFilter()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:2px"><option value="">all types</option><option value="room">room</option><option value="in">direct (in)</option><option value="out">output (out)</option></select>
+        <input id="flt-text" placeholder="search…" oninput="applyMsgFilter()" style="flex:1;min-width:60px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:2px 6px"/>
+      </div>
       <div class="pb" id="b-msgs"><div class="empty">Loading…</div></div>
     </div>
     <div class="panel">
@@ -260,8 +287,52 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
   </div>
 </div>
 
+<!-- ── Commands / onboarding overlay ── -->
+<div id="cmd-ov" onclick="if(event.target===this)toggleCommands(false)">
+  <div class="cmd-box">
+    <button class="cmd-close" onclick="toggleCommands(false)">&#10005; close</button>
+    <h2>&#9881; Swarm commands</h2>
+    <div class="cmd-sub">Run these from inside the repo. The swarm needs no API key — each CLI agent (Codex, Gemini, Claude) is the brain; <span class="k">swarm-cli.js</span> is its hands.</div>
+
+    <h3>Add a non-Claude worker (onboard)</h3>
+    <div class="cmd-onboard">
+      <div class="cmd-sub" style="margin-bottom:4px">Paste into a Codex&nbsp;CLI / Gemini&nbsp;CLI session. Step&nbsp;1 registers it; step&nbsp;2 keeps it working.</div>
+      <pre>cd "__SWARM_ROOT__"
+
+# 1) join once (pick a name + capabilities)
+node lib/swarm-cli.js join "Codex-Bob" backend,api
+
+# 2) work continuously — never exit after a task
+node lib/swarm-cli.js loop</pre>
+      <div class="cmd-sub" style="margin:2px 0 0">A direct message you send below lands in that worker's inbox — it shows up on the next <span class="k">inbox</span> / <span class="k">loop</span> tick.</div>
+    </div>
+
+    <h3>Operate (any agent)</h3>
+    <table class="cmd-tbl">
+      <tr><td>inbox</td><td>your assigned tasks + unread messages — check this first</td></tr>
+      <tr><td>next</td><td>best open task to claim right now</td></tr>
+      <tr><td>claim &lt;id&gt;</td><td>claim an open task</td></tr>
+      <tr><td>done &lt;id&gt; "&lt;result&gt;"</td><td>finish a task — result must be your real output</td></tr>
+      <tr><td>room ["&lt;text&gt;"]</td><td>view or post to the shared common room</td></tr>
+      <tr><td>msg &lt;name&gt; "&lt;text&gt;"</td><td>direct-message another agent</td></tr>
+      <tr><td>status</td><td>team + task overview</td></tr>
+    </table>
+
+    <h3>Lead only</h3>
+    <table class="cmd-tbl">
+      <tr><td>delegate</td><td>split big tasks + hand parts out to the best agents</td></tr>
+      <tr><td>assign &lt;id&gt; &lt;name&gt;</td><td>assign a task to a specific agent</td></tr>
+      <tr><td>split &lt;id&gt; "A" "B"</td><td>break a task into subtasks by hand</td></tr>
+      <tr><td>lead [name]</td><td>make yourself (or someone) the lead</td></tr>
+    </table>
+    <div class="cmd-sub" style="margin-top:10px">Full reference: <span class="k">node lib/swarm-cli.js help</span></div>
+  </div>
+</div>
+
 <script>
 function e(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function toggleCommands(show){document.getElementById('cmd-ov').classList.toggle('show',!!show)}
+document.addEventListener('keydown',ev=>{if(ev.key==='Escape')toggleCommands(false)});
 function shortId(id){return id?String(id).slice(0,8):'?'}
 function agentName(id,agents){if(!id)return'none';const a=agents.find(a=>a.id===id);return a?a.name:shortId(id)}
 
@@ -277,8 +348,8 @@ function renderTeam(state){
     const budget=a.max_calls?((a.calls||0)+'/'+a.max_calls):(a.calls?((a.calls)+''):'');
     const meta=e(a.paused?'paused':a.status)+(caps?' &middot; '+e(caps):'')+(budget?' &middot; '+budget+' calls':'');
     const isLead=a.id===lead;
-    const b=(act,label,extra)=>'<button class="abtn'+(extra||'')+'" onclick="doAgent(\''+a.id+'\',\''+act+'\')">'+label+'</button>';
-    const bp=(act,label,cur)=>'<button class="abtn" onclick="doAgentPrompt(\''+a.id+'\',\''+act+'\',\''+e(cur||'')+'\')">'+label+'</button>';
+    const b=(act,label,extra)=>'<button class="abtn'+(extra||'')+'" onclick="doAgent(\\''+a.id+'\\',\\''+act+'\\')">'+label+'</button>';
+    const bp=(act,label,cur)=>'<button class="abtn" onclick="doAgentPrompt(\\''+a.id+'\\',\\''+act+'\\',\\''+e(cur||'')+'\\')">'+label+'</button>';
     const ctrls='<div class="actrl">'
       +(isLead?'<span class="abtn lead">&#9733; lead</span>':b('lead','&#9733; lead'))
       +(a.paused?b('resume','&#9654; resume',' on'):b('pause','&#9208; pause'))
@@ -391,8 +462,34 @@ function renderFlow(state){
     const t=m.timestamp?new Date(m.timestamp).toLocaleTimeString():'';
     const who=m.from==='human'?'human':agentName(m.agent,agents);
     const dir=m.box==='room'?'<span style="color:var(--purple)">room</span>':(m.box==='in'?'<span style="color:var(--green)">in&#8594;</span>':'<span style="color:var(--blue)">&#8592;out</span>');
-    return '<div class="msg"><span class="mt">'+e(t)+'</span> '+dir+' <span class="mf">'+e(who)+'</span>: <span class="mbody">'+e((m.content||'').slice(0,90))+'</span></div>';
+    return '<div class="msg" data-box="'+(m.box||'')+'" data-agent="'+(m.agent||m.from||'')+'">'+'<span class="mt">'+e(t)+'</span> '+dir+' <span class="mf">'+e(who)+'</span>: <span class="mbody">'+e(m.content||'')+'</span></div>';
   }).join('')
+}
+
+let _lastFlow=[];
+function populateFlowFilters(state){
+  const sel=document.getElementById('flt-agent');
+  if(!sel)return;
+  const cur=sel.value;
+  const agents=state.agents||[];
+  sel.innerHTML='<option value="">all agents</option>'+agents.map(a=>'<option value="'+e(a.id)+'">'+e(a.name)+'</option>').join('')+'<option value="human">human</option>';
+  if(cur)sel.value=cur;
+}
+function applyMsgFilter(){
+  const fa=document.getElementById('flt-agent').value;
+  const ft=document.getElementById('flt-type').value;
+  const fs=(document.getElementById('flt-text').value||'').toLowerCase();
+  const msgs=document.querySelectorAll('#b-msgs .msg');
+  msgs.forEach(el=>{
+    const txt=el.textContent.toLowerCase();
+    const box=el.dataset.box||'';
+    const agent=el.dataset.agent||'';
+    let show=true;
+    if(fa&&agent!==fa)show=false;
+    if(ft&&box!==ft)show=false;
+    if(fs&&!txt.includes(fs))show=false;
+    el.style.display=show?'':'none';
+  });
 }
 
 function populateInject(state){
@@ -434,6 +531,8 @@ async function fetchState(){
     document.getElementById('b-msgs').innerHTML=renderFlow(state);
     document.getElementById('b-health').innerHTML=renderHealth(state);
     populateInject(state);
+    populateFlowFilters(state);
+    applyMsgFilter();
     updateHeader(state);
     dot.className='dot ok';txt.textContent='live';
     document.getElementById('rtime').textContent='updated '+new Date().toLocaleTimeString();
@@ -568,7 +667,7 @@ const server = http.createServer((req, res) => {
   }
 
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(HTML);
+  res.end(HTML.replace(/__SWARM_ROOT__/g, swarmRoot.replace(/[<>&]/g, '')));
 });
 
 server.on('error', err => {

@@ -100,3 +100,33 @@ GEMINI_API_KEY=... python adapters/gemini-wrapper.py --swarm-root /path/to/repo
 | `SWARM_CAPABILITIES` | Comma-separated capabilities |
 | `CODEX_API_KEY` | OpenAI API key for Codex adapter |
 | `GEMINI_API_KEY` | Google AI API key for Gemini adapter |
+
+## Windows & Sandbox Notes
+
+### PowerShell gotchas
+- PowerShell does not support `&&` chaining for native executables. Use `;` or `if ($?) { ... }` instead.
+- If the working directory path contains spaces (e.g. `OneDrive - TU Eindhoven`), always quote paths in both PowerShell commands and `node -e` inline scripts.
+- When complex quoting is needed, write a temporary `.js` file and run it with `node temp.js` instead of using `node -e "..."` with embedded quotes.
+
+### Git sandbox escalation
+- Codex desktop workers may need explicit approval for `git add` and `git commit` operations.
+- When a worker is blocked on git permissions, the dashboard should show a pending approval indicator.
+- Workaround: Re-run the focused `git add <file>` and `git commit -m "message"` commands with elevated permissions when prompted.
+- Consider scoping git commits to task-specific files only.
+
+### Verifying static HTML files without a browser
+- The in-app browser may block `file://` URLs and `localhost` by policy (`net::ERR_BLOCKED_BY_CLIENT`).
+- Workaround: Test HTML file behavior by loading it in a Node.js VM:
+  ```javascript
+  const fs = require('fs');
+  const { JSDOM } = require('jsdom');
+  const html = fs.readFileSync('calculator.html', 'utf-8');
+  const dom = new JSDOM(html, { runScripts: 'dangerously' });
+  // Now test DOM interactions programmatically
+  ```
+- Alternative: Extract inline `<script>` content from the HTML, stub the DOM globals (`document`, `window`), and run the script directly with `eval()` or `vm.runInNewContext()`.
+- For swarm tasks that produce static HTML, consider adding a test helper that automates this pattern.
+
+### Git initialization
+- If the repo directory is empty (no `.git`), you must run `git init` before `swarm init`.
+- To create a GitHub remote: `gh repo create <name> --private --source=. --remote=origin --push`

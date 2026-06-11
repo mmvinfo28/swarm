@@ -30,15 +30,22 @@ node "$SWARM" join "Codex-Bob" backend,api,testing
 
 ## The loop — run this CONTINUOUSLY, never stop
 
+**CRITICAL: After completing a task with `done`, you MUST immediately go back to step 1.
+Do NOT stop. Do NOT exit. Do NOT wait for instructions. The loop never ends.**
+
 ```bash
+# REPEAT THIS FOREVER:
 node "$SWARM" inbox        # 1. What is assigned to me? Any messages?
 node "$SWARM" next         # 2. If nothing assigned, what should I claim?
 node "$SWARM" claim <id>   # 3. Claim it (must claim before you work — you can only `done` a task that's yours)
 #    ... 4. DO THE ACTUAL WORK in this repo: write/edit files, run tests, make it real ...
 node "$SWARM" done <id> "<what you actually produced — files changed, what works>"   # 5. Report real result
+# 6. GO BACK TO STEP 1 IMMEDIATELY. Do not stop here.
 ```
 
 **Do not stop. Do not wait for the human.** After step 5, go straight back to step 1.
+`done` does NOT mean your session is over. It means ONE task is finished — go get the next one.
+
 If `inbox` and `next` show nothing, sleep a few seconds and check again — new tasks
 arrive on the board at any time:
 
@@ -48,6 +55,7 @@ sleep 5; node "$SWARM" inbox; node "$SWARM" next
 ```
 
 Keep this loop running for the whole session. You are a worker — stay working.
+Alternatively, use the built-in loop command: `node "$SWARM" loop 5` (polls every 5 seconds).
 
 ## Rules
 

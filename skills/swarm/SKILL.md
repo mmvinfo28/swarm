@@ -1,465 +1,163 @@
 ---
 name: swarm
 description: >
-  Multi-agent orchestration skill. Enables teams of AI agents (Claude Code, Codex, Gemini)
-  to collaborate on shared codebases. Agents communicate via WebSocket (real-time) and
-  coordinate tasks via git (persistent state). Use when user says /swarm, mentions team
-  coordination, or when swarm hooks detect an active .swarm/ directory.
+  Multi-agent orchestration skill. Teams of AI agents (Claude Code, Codex, Gemini)
+  collaborate on a shared codebase — real-time via WebSocket, durable state via git.
+  Use when the user says /swarm, mentions team coordination, or swarm hooks detect an
+  active .swarm/ directory.
 ---
 
 # Swarm — Multi-Agent Orchestration
 
-You are part of a swarm team. Multiple AI agents collaborate on the same codebase.
-Your actions affect the whole team. Coordinate, don't duplicate work.
+You are part of a swarm team. Your actions affect everyone — coordinate, don't duplicate.
+`{skillDir}` = this skill's base dir (see "Base directory for this skill:" at the top of the
+skill output). `{swarmRoot}` = the repo containing `.swarm/`.
 
 ## The 4 commands a human types
 
-Everything else is a subcommand or happens automatically. The previewable slash commands are:
-
 | Command | Does |
 |---------|------|
-| `/swarm` | **Start everything + show status** (the everyday entry point) |
-| `/swarm-worker <provider> <name> [caps]` | Add a Claude/Codex/Gemini worker |
-| `/task add "<title>" [priority] [tags]` | Drop a task on the board from any chat |
+| `/swarm` | Start everything + show status (everyday entry point) |
+| `/swarm-worker <provider> [name] [caps]` | Add a Claude/Codex/Gemini worker |
+| `/task add "<title>" [priority] [tags]` | Drop a task on the board |
 | `/swarm-stop` | Stop all swarm processes |
 
-`/swarm <subcommand>` (claim, done, msg, room, delegate, …) still works for power use and is
-how the agents themselves act — see the full table below. Most humans only need the 4 above
-plus the dashboard at http://localhost:7379.
+`/swarm <subcommand>` (below) is how agents act and how power users drive it. Most humans only
+need the 4 above + the dashboard at http://localhost:7379 (**⚙ Commands** panel there lists the
+CLI for non-Claude workers).
 
-## Default: `/swarm` with no subcommand = start + status
+## `/swarm` (no args) = start + status
 
-When the user runs `/swarm` (no args), or `/swarm start` / `/swarm up`:
+1. No `.swarm/` in repo → initialize (see **Init**).
+2. `node {skillDir}/lib/launch.js stack {swarmRoot}` (server + dashboard, idempotent).
+3. Ensure a Claude lead: `node {skillDir}/lib/launch.js worker claude {swarmRoot} "<git user or Lead>" coordination,review` (first worker = lead).
+4. Report: "Swarm up. Panel http://localhost:7379. Add workers `/swarm-worker`, tasks `/task add`, stop `/swarm-stop`."
 
-1. If there is no `.swarm/` in the repo → initialize it (see **Initialization** below).
-2. Start the stack: `node {skillDir}/lib/launch.js stack {swarmRoot}` (server + dashboard, idempotent).
-3. Ensure a Claude **lead** worker is running:
-   `node {skillDir}/lib/launch.js worker claude {swarmRoot} "<git user name or 'Lead'>" coordination,review`
-   (first worker becomes lead; idempotent — won't double-start).
-4. Show team status and the dashboard URL: "Swarm up. Control panel: http://localhost:7379.
-   Add workers with `/swarm-worker`, drop tasks with `/task add`, stop with `/swarm-stop`."
+`/swarm status` → show status only, start nothing.
 
-When the user runs `/swarm status` → just show status (do not start anything).
+## Subcommands (of `/swarm`)
 
-## Commands (full — subcommands of `/swarm`)
+Agents drive these via `node {skillDir}/lib/swarm-cli.js <cmd> --root {swarmRoot}`. Humans use the
+dashboard or the 4 commands instead.
 
 | Command | Action |
 |---------|--------|
-| `/swarm init` | Initialize `.swarm/` directory in current repo. Creates config, agents/, tasks/, claims/ dirs. |
-| `/swarm join [name] [capabilities...]` | Register this agent. Example: `/swarm join "Claude-Alice" frontend,react,testing` |
-| `/swarm status` | Show team status: agents, tasks, hierarchy, health. |
-| `/swarm task "title" [priority] [tags]` | Create new task. Example: `/swarm task "Build login form" high frontend,react` |
-| `/swarm assign <task-id> <agent-name>` | Assign task to specific agent. |
-| `/swarm claim <task-id>` | Claim an open task for yourself. Uses conflict-free claim tickets. |
-| `/swarm done [result]` | Mark current task as completed with result summary. |
-| `/swarm msg <agent-name> "text"` | Send direct message to another agent. |
-| `/swarm broadcast "text"` | Send message to all agents. |
-| `/swarm lead [agent-name]` | Set team lead. Lead manages hierarchy and task distribution. |
-| `/swarm delegate` | Lead distributes all open tasks to best-matched agents and sends each a work prompt. Runs `node {skillDir}/lib/orchestrator-cli.js distribute {swarmRoot} {myAgentId}`. (Also happens automatically each turn when you are lead.) |
-| `/swarm agent codex\|gemini [capabilities]` | Launch a Codex/Gemini **API** worker (needs API key) as a detached background process. Runs `node {skillDir}/lib/launch.js agent <provider> {swarmRoot} [caps]`. |
-| `/swarm onboard [name] [capabilities]` | **No API key.** Print a ready-to-paste start command for a Codex CLI / Gemini CLI agent. They read `SWARM-AGENT.md` and drive the swarm via `lib/swarm-cli.js` on their own Pro/CLI plan. See "Onboard a CLI agent" below. |
-| `/swarm worker claude\|gemini\|codex [name] [caps]` | **No API key (claude).** Start a **background agent daemon** that loops inbox → reason (`claude -p` headless) → act. Runs `node {skillDir}/lib/launch.js worker <provider> {swarmRoot} "<name>" <caps>`. See "Background agents" below. |
-| `/swarm say <agent> "text"` | Inject a message into an agent's inbox (you → agent / panel → LLM). Runs `node {skillDir}/lib/swarm-cli.js say <agent> "text" --root {swarmRoot}`. |
-| `/swarm room ["text"]` | View the **common room** (shared chat all agents read), or post to it. Runs `node {skillDir}/lib/swarm-cli.js room ["text"] --root {swarmRoot}`. |
-| `/swarm split <task-id> "sub1" "sub2" ...` | Split task into subtasks. |
-| `/swarm modify task <id> <field> <value>` | Modify a task. Fields: title, description, priority, tags, status. |
-| `/swarm modify agent <name> <field> <value>` | Modify an agent. Fields: capabilities, role, status, name. |
-| `/swarm modify config <field> <value>` | Modify swarm config. Fields: sync_interval, transport, max_tasks_per_agent. |
-| `/swarm escalate <message>` | Escalate a decision to the human user. |
-| `/swarm resolve <escalation-id> <decision>` | Human resolves an escalation. |
-| `/swarm dashboard` | Launch HTML dashboard (detached). Runs `node {skillDir}/lib/launch.js dashboard {swarmRoot}`, opens `http://localhost:7379`. |
-| `/swarm dashboard-tui` | Launch terminal (blessed) dashboard in a NEW terminal window. **Must use `Start-Process` (Windows) or open new terminal.** TUI takes over the terminal — CANNOT run inline in chat. |
-| `/swarm server [port]` | Start WebSocket relay server (detached). Runs `node {skillDir}/lib/launch.js server {swarmRoot}`. |
-| `/swarm start` | Start full stack (WS server + HTML dashboard), detached + idempotent. Runs `node {skillDir}/lib/launch.js stack {swarmRoot}`. |
-| `/swarm stop` | Stop all swarm processes (server, dashboard, agents). Runs `node {skillDir}/lib/launch.js stop {swarmRoot}`. |
-| `/swarm ps` | Show running swarm processes + server health. Runs `node {skillDir}/lib/launch.js status {swarmRoot}`. |
+| `init` | Create `.swarm/` (config, agents/, tasks/, claims/, messages/, escalations/, hierarchy.yaml). |
+| `join [name] [caps]` | Register/reuse this agent. e.g. `join "Claude-Alice" frontend,react`. First agent = lead. |
+| `status` | Team + tasks + health. |
+| `task "title" [priority] [tags]` | Create a task. |
+| `assign <id> <agent>` | Assign a task. |
+| `claim <id>` | Claim an open task (conflict-free claim ticket). |
+| `done [result]` | Complete current task — result is the REAL output. |
+| `msg <agent> "text"` / `broadcast "text"` | DM one agent / message all. |
+| `room ["text"]` | View or post to the common room (shared channel all agents read). |
+| `say <agent> "text"` | Inject into an agent's inbox (human/panel → agent). |
+| `lead [agent]` | Set team lead. |
+| `delegate` | Lead splits big tasks + hands out open tasks to best agents. `node {skillDir}/lib/orchestrator-cli.js distribute {swarmRoot} {myAgentId}`. Also automatic each turn when you're lead. |
+| `split <id> "sub1" "sub2"` | Break a task into subtasks. |
+| `review <id> accept\|reject ["reason"]` | Accept/reopen a completed task. |
+| `escalate <message>` / `resolve <esc-id> <decision>` | Escalate to human / human resolves. |
+| `modify task\|agent\|config <id/name> <field> <value>` | Edit a task/agent/config (see below). |
 
-## Modify
+Process control via `node {skillDir}/lib/launch.js <cmd> {swarmRoot}`:
+`stack` (server+dashboard) · `server` · `dashboard` · `worker <provider> "<name>" <caps>` ·
+`agent <provider> <caps>` (API-key worker) · `status` (`/swarm ps`) · `stop` (`/swarm-stop`).
+All detached + idempotent; logs in `{swarmRoot}/.swarm/.run/`. Run with a short timeout, don't block.
 
-When user runs `/swarm modify`:
+## Init (`/swarm init`)
 
-### Modify a task
-```
-/swarm modify task <task-id> priority critical
-/swarm modify task <task-id> title "New title here"
-/swarm modify task <task-id> tags coding,security,backend
-/swarm modify task <task-id> status open
-/swarm modify task <task-id> description "Updated description"
-```
-
-Read the task YAML file, update the specified field, write back. Always update `updated_at` timestamp.
-
-### Modify an agent
-```
-/swarm modify agent <agent-name> capabilities coding,testing,devops
-/swarm modify agent <agent-name> role developer
-/swarm modify agent <agent-name> status idle
-/swarm modify agent <agent-name> name "New-Name"
-```
-
-Find agent by name, update field in their YAML file. Valid roles: lead, developer, reviewer, tester, architect.
-
-### Modify config
-```
-/swarm modify config sync_interval 30
-/swarm modify config transport hybrid
-/swarm modify config max_tasks_per_agent 5
-```
-
-Update `.swarm/config.yaml` directly. Show confirmation of what changed.
-
-### After any modify
-1. Show the updated entity (task/agent/config) to the user
-2. Git add + commit with message `swarm: modify <what> <field>=<value>`
-3. Do NOT auto-push unless user asks
-
-## Initialization
-
-When user runs `/swarm init`:
-
-1. Create `.swarm/` directory structure:
-   ```
-   .swarm/
-   ├── config.yaml
-   ├── agents/
-   ├── tasks/
-   ├── claims/
-   ├── messages/
-   ├── escalations/
-   └── hierarchy.yaml
-   ```
-
-2. Write `config.yaml`:
-   ```yaml
-   project: <repo name from git>
-   created_at: <ISO timestamp>
-   transport: git
-   sync_interval: 15
-   max_tasks_per_agent: 3
-   ```
-
-3. Register this agent automatically.
-4. Initialize hierarchy with this agent as lead.
-5. Git add + commit `.swarm/`.
-
-6. **Create a GitHub repo for the project (so all agents/machines sync through it).**
-   This is outward-facing — confirm the repo name + visibility with the user first
-   (default **private**). Then:
+1. Create `.swarm/` dirs + `config.yaml` (`project`, `created_at`, `transport: git`, `sync_interval: 15`, `max_tasks_per_agent: 3`) + `hierarchy.yaml` (this agent as lead).
+2. Register this agent; git add + commit `.swarm/`.
+3. **Outward-facing** — to sync across machines, confirm repo name + visibility (default **private**), then:
    ```bash
-   git rev-parse --is-inside-work-tree || git init        # init git if needed
+   git rev-parse --is-inside-work-tree || git init
    git add -A && git commit -m "swarm: init" || true
-   # requires the `gh` CLI, logged in (`gh auth status`)
-   gh repo create <repo-name> --private --source=. --remote=origin --push
+   gh repo create <name> --private --source=. --remote=origin --push   # needs gh auth
    ```
-   - If `gh` is missing or not authenticated, tell the user (`gh auth login`) and continue
-     in local-only mode — the swarm still works locally; they can add a remote later.
-   - After this, every agent's `done`/`claim`/messages sync via `git pull/push` to that repo,
-     so workers on other machines see the same board.
+   No `gh`? Tell the user (`gh auth login`); swarm still works local-only.
+4. Offer: "`/swarm` to start, `/swarm-worker claude \"Alice\" coordination` to add workers."
 
-7. After init, offer to start the stack + add workers:
-   "Run `/swarm start`, then `/swarm worker claude \"Alice\" coordination` to begin."
+## Modify (`/swarm modify`)
 
-## Behavior Rules
+Read the entity's YAML, update the field, write back, bump `updated_at`. Then show it + git
+commit `swarm: modify <what> <field>=<value>` (no auto-push).
+- task fields: title, description, priority, tags, status.
+- agent fields: capabilities, role (lead/developer/reviewer/tester/architect), status, name.
+- config fields: sync_interval, transport, max_tasks_per_agent.
 
-### On Every Turn (automatic via hooks)
+## Behavior rules
 
-The swarm-sync hook runs on every user prompt. You will see context like:
-- `SWARM ACTIVE — N agents, M tasks`
-- `📋 Your active tasks: ...`
-- `⚡ Urgent unassigned tasks: ...`
-- `🔔 ESCALATION(S) NEED YOUR DECISION: ...`
+**Per-turn hook context** — `swarm-sync` injects only when relevant: `📋 your tasks`,
+`⚡ urgent unassigned`, `📨 assignments`, `💬 messages`, `🔔 escalations`. React naturally:
+focus your tasks; suggest claiming urgent ones if idle; present escalations for decision.
 
-React to this context naturally:
-- If you have active tasks, focus on them.
-- If urgent tasks exist and you're idle, suggest claiming one.
-- If escalations are pending, present them to the user for decision.
+**Task routing** — when the user gives a general instruction (not a `/swarm` cmd), match to an
+open task and suggest claiming, else suggest creating. Never auto-claim without confirmation.
+Score: `capability_match·0.5 + load_balance·0.3 + priority·0.2`
+(cap_match = overlap(caps, tags)/len(tags); load = 1 − active/max; crit=1, high=.75, med=.5, low=.25).
 
-### Task Routing (Semi-Automatic)
+**Auto-split + distribution** — the lead distributes every turn (hook calls
+`orchestrator.distribute()`). Big or multi-deliverable tasks are split by token size +
+worker count and one part handed to each agent, so no single agent swallows the whole job.
+Non-lead workers skip splittable tasks until the lead splits them. Manual: `/swarm delegate`.
 
-When the user gives a general instruction (not a /swarm command):
-1. Check if it matches an existing open task → suggest claiming it.
-2. If no match, suggest creating a new task.
-3. Never auto-claim without user confirmation. Always ask:
-   "There's an open task 'Build login form' that matches. Claim it? (yes/no)"
+**Conflict-free claims** — `claims/claim-{taskId}-{agentId}-{ts}.yaml`; earliest after git sync wins;
+losers pick next best. Zero merge conflicts.
 
-### Task Scoring Algorithm
+**Acting on an assignment** — claim/accept → produce REAL output (code/analysis/findings, never
+placeholder) → `done` with the real result. LLM workers write results into the task `result`
+field; they do NOT edit repo files.
 
-When suggesting which task to claim, rank by:
-```
-score = capability_match × 0.5 + load_balance × 0.3 + priority × 0.2
+**Escalate to human** on hard decisions (should we / which / vs / tradeoff), security
+(vulnerability/exploit/injection), scope changes (redesign/rewrite/pivot), or agent disagreement.
+Present prominently — escalations block progress.
 
-capability_match = overlap(agent.capabilities, task.tags) / len(task.tags)
-load_balance = 1 - (active_tasks / max_tasks_per_agent)
-priority: critical=1.0, high=0.75, medium=0.5, low=0.25
-```
+**Credit exhaustion** — agent reports `credits_exhausted` → its tasks orphan → lead reassigns →
+broadcast → tell user "⚠ Bob out of credits, N tasks reassigned."
 
-### Conflict-Free Claims
+**Boundaries** — never auto-execute without confirmation; never touch files outside `.swarm/`
+without request; never commit non-swarm files via swarm ops.
 
-Task claiming uses claim ticket files (not direct file modification):
-- Agent creates `claims/claim-{taskId}-{agentId}-{timestamp}.yaml`
-- Winner = earliest timestamp after git sync
-- Losers see the winner and pick next best task
-- Zero git merge conflicts by design
+## Background workers (no API key)
 
-### Escalation Protocol
+`/swarm-worker claude "Bob" backend,api` → `node {skillDir}/lib/launch.js worker claude {swarmRoot} "Bob" backend,api`.
+Always-on daemon: loops inbox → reason (`claude -p` headless / gemini / codex) → emit
+`##SWARM:..##` actions → outbox. **Cost-safe:** calls the LLM only when there's real work (inbox
+message, assigned task, claimable fitting task, or new room chatter); idle = cheap heartbeat.
+Rules are code-enforced: an agent can only `DONE` a task assigned to it, can't claim another's.
+Test with zero spend: `SWARM_DRIVER=fake`.
 
-Escalate to human when detecting:
-- Hard decisions: "should we", "which one", "vs", "tradeoff"
-- Security issues: "vulnerability", "exploit", "injection"
-- Scope changes: "redesign", "rewrite", "pivot"
-- Agent disagreements
+The dashboard inject box (pick an agent or Common Room) lands in the inbox; the worker processes
+it next tick and its reply (incl. answers to the human via `##SWARM:MSG:human:..##`) shows in the
+Message Flow panel.
 
-Format escalations clearly:
-```
-🔔 DECISION NEEDED
-From: Bob (Codex)
-Question: "Should we use REST or GraphQL for the API?"
-AI suggests: REST (simpler for MVP)
+## Onboard a CLI agent (Codex/Gemini, no API key)
 
-[Approve REST] [Choose GraphQL] [Other input]
-```
-
-### Credit Exhaustion Failover
-
-When an agent reports credits_exhausted:
-1. Its tasks become orphaned.
-2. Lead agent (or any available agent) reassigns orphaned tasks.
-3. Team gets notified via broadcast.
-4. Show user: "⚠ Bob (Codex) is out of credits. 2 tasks reassigned to Alice."
-
-### Priority Preemption
-
-Critical tasks can preempt lower-priority work:
-- Agent working on medium task + critical task arrives → suggest preempting.
-- Never auto-preempt. Ask user: "Critical task 'Fix XSS bug' arrived. Pause current work?"
-
-## Communication Protocol
-
-### WebSocket (real-time, preferred)
-
-Messages flow instantly via WebSocket when server is running.
-Start server: `/swarm server` (→ `node {skillDir}/lib/launch.js server {swarmRoot}`).
-Git-based messaging always works even with no server — messages are YAML files.
-
-### Git (fallback, always available)
-
-Messages stored as individual YAML files in `.swarm/messages/`.
-One file per message = zero git conflicts.
-
-### Hybrid Mode
-
-Best setup: WebSocket for messages + git for state (tasks, agents, hierarchy).
-- Messages: instant via WS
-- Task state: durable via git, synced every 30s
-
-## File Locations
-
-The lib/ modules are bundled with this skill. To use them, resolve paths relative to this SKILL.md file's directory:
-
-```javascript
-const path = require('path');
-const skillDir = 'SKILL_BASE_DIR'; // replaced at runtime with actual skill base directory
-const libDir = path.join(skillDir, 'lib');
-const yaml = require(path.join(libDir, 'yaml'));
-const agentRegistry = require(path.join(libDir, 'agent-registry'));
-const taskManager = require(path.join(libDir, 'task-manager'));
-// etc.
-```
-
-**IMPORTANT:** The "Base directory for this skill:" line at the top of the skill output tells you the actual path. Use THAT path as `skillDir`.
-
-Available modules:
-- `lib/yaml.js` — YAML parse/serialize
-- `lib/git-sync.js` — git operations
-- `lib/agent-registry.js` — agent CRUD + health
-- `lib/task-manager.js` — task CRUD + scoring + claim tickets
-- `lib/message-bus.js` — messaging (git-based)
-- `lib/hierarchy.js` — team structure
-- `lib/conflict-resolver.js` — race resolution
-- `lib/agent-loop.js` — autonomous loop + escalation
-- `lib/orchestrator.js` — lead task distribution (delegation brain)
-- `lib/orchestrator-cli.js` — CLI over orchestrator (used by `/swarm delegate` + adapters)
-- `lib/launch.js` — detached launcher for server/dashboard/agents
-- `lib/realtime.js` — WebSocket server/client (zero deps)
-- `lib/realtime-message-bus.js` — WS message bus wrapper
-
-For `/swarm server`: run `node {skillDir}/lib/launch.js server {swarmRoot}`
-
-## Dashboard
-
-### HTML Dashboard (preferred — no terminal blocking)
-
-All process launching goes through the detached, idempotent launcher
-`lib/launch.js`. It writes PID + logs under `{swarmRoot}/.swarm/.run/`, never
-double-starts a healthy server, and survives the shell that started it.
-
-```bash
-node {skillDir}/lib/launch.js stack     {swarmRoot}   # WS server + HTML dashboard
-node {skillDir}/lib/launch.js server    {swarmRoot}   # WS relay only
-node {skillDir}/lib/launch.js dashboard {swarmRoot}   # HTML dashboard only
-node {skillDir}/lib/launch.js status    {swarmRoot}   # what's running + health
-node {skillDir}/lib/launch.js stop      {swarmRoot}   # stop everything
-```
-
-Command mapping:
-- `/swarm start` → `node {skillDir}/lib/launch.js stack {swarmRoot}` → tell user the dashboard + WS URLs.
-- `/swarm dashboard` → `node {skillDir}/lib/launch.js dashboard {swarmRoot}` → "Dashboard at http://localhost:7379 (auto-refresh 3s)."
-- `/swarm server` → `node {skillDir}/lib/launch.js server {swarmRoot}`.
-- `/swarm stop` → `node {skillDir}/lib/launch.js stop {swarmRoot}`.
-- `/swarm ps` → `node {skillDir}/lib/launch.js status {swarmRoot}`.
-
-These return immediately (detached) — run them with a short timeout; do NOT
-block waiting for them. The old `start.js` still works but `launch.js` is preferred.
-
-### TUI Dashboard (legacy — blocks terminal)
-
-**CRITICAL:** Must launch in a SEPARATE terminal window. Cannot run inline.
-
-On Windows:
-```powershell
-Start-Process powershell -ArgumentList '-NoExit', '-Command', "node `"{skillDir}/dashboard/index.js`" `"{swarmRoot}`""
-```
-
-On Mac/Linux:
-```bash
-node {skillDir}/dashboard/index.js {swarmRoot} &
-```
-
-After launching: "TUI dashboard opened in new terminal. Press q to quit."
-
-## Background agents (v2 — continuous, no API key)
-
-Agents can run as **always-on background daemons** that never stop, talk through
-**inbox/outbox**, and let the lead route work — driven by `claude -p` headless (no API key,
-your Claude plan), or gemini/codex (CLI if installed, else API key).
-
-### Start workers
-```
-/swarm start                                  # WS server + control-panel dashboard
-/swarm worker claude "Alice" coordination     # background lead (first worker = lead)
-/swarm worker claude "Bob"   backend,api       # background worker
-```
-→ `node {skillDir}/lib/launch.js worker claude {swarmRoot} "<name>" <caps>`.
-Detached; logs at `{swarmRoot}/.swarm/.run/worker-<name>.log`. Stop all: `/swarm stop`.
-
-### How it flows
-1. Each worker loops (default 30s). **Cost-safe:** it only calls the LLM when there's actual
-   work — an inbox message, an assigned task, a **claimable open task that fits it**, or new
-   **common-room** chatter. Otherwise idle = a cheap heartbeat, no LLM call.
-2. Work reaches agents two ways: the **lead auto-distributes** open tasks into inboxes, AND any
-   idle worker **claims matching open tasks off the board** on its own (no lead required).
-3. A worker reasons, emits `##SWARM:..##` actions (claim/done/msg/**room**/create/…), writes its
-   output to its **outbox**, and posts progress to the **common room**. Results go into the task
-   `result` field (no repo edits).
-4. **Common room** = the shared channel every agent reads each tick. Post with `##SWARM:ROOM:..##`
-   or `/swarm room "..."`. This is how the team talks, offers tasks, and asks for help.
-5. **You inject** into any agent (`/swarm say Bob "..."`) or the room (`/swarm room "..."`), or use
-   the dashboard inject box (pick an agent or "Common Room"). It lands → next tick the agent
-   processes it → reply shows in the **Message Flow** panel.
-
-### Control panel (main channel)
-`/swarm dashboard` (or `/swarm start`) → `http://localhost:7379`. From the browser you can:
-- **Send tasks to the board** — the input above the Tasks panel (title + priority + tags → Add)
-  creates an open task and announces it in the room; idle workers wake and claim it.
-- **Message agents or the room** — the inject box above the Message Flow panel (pick an agent or
-  "Common Room"). The flow shows live inbox/outbox/room traffic between all agents.
-`node {skillDir}/lib/swarm-cli.js outbox` shows the same flow in the terminal.
-
-### Rule enforcement (agents can't cheat)
-Rules are enforced in code, not just the prompt: an agent can only `DONE` a task assigned to it
-(it must `CLAIM` an open one first), and can't claim another agent's task. A compact strict
-system prompt keeps token use low; idle ticks make **zero** LLM calls.
-
-### Test free (no quota)
-Set `SWARM_DRIVER=fake` before launching a worker — it acts deterministically with zero LLM
-calls. Good for verifying routing/inbox/outbox end-to-end.
-
-## Onboard a CLI agent (no API key — recommended)
-
-This is the easy, free way to add Codex/Gemini as workers: the user already has a
-Codex CLI or Gemini CLI (on their Pro/CLI plan). Instead of the API adapter, the CLI
-agent itself drives the swarm via `lib/swarm-cli.js`. No API key, no per-token cost.
-
-When the user runs `/swarm onboard [name] [caps]`, produce a ready-to-paste block.
-Fill in the **absolute** `{skillDir}` and `{swarmRoot}`:
+The user's own Codex/Gemini CLI drives the swarm via `lib/swarm-cli.js` — no key, no per-token cost.
+On `/swarm onboard [name] [caps]`, emit this paste block with absolute `{skillDir}`/`{swarmRoot}`:
 
 ```
-Paste this into your Codex CLI / Gemini CLI session:
-─────────────────────────────────────────────
-Read "{skillDir}/SWARM-AGENT.md" and follow it to act as a swarm agent.
-
-Setup (auto-registers you, works in THIS repo folder):
+Read "{skillDir}/SWARM-AGENT.md" and act as a swarm agent.
   cd "{swarmRoot}"
   export SWARM="{skillDir}/lib/swarm-cli.js"
-  node "$SWARM" join "{name or e.g. Codex-Bob}" {caps or e.g. backend,api}
+  node "$SWARM" join "{name e.g. Codex-Bob}" {caps e.g. backend,api}
 
-Then loop CONTINUOUSLY — do not stop, do not wait for me:
-  node "$SWARM" inbox  → node "$SWARM" next  → claim <id>  → DO THE REAL WORK in the repo
-  (edit files, run tests)  → node "$SWARM" done <id> "<what you did>"  → back to inbox.
-If nothing to do: `sleep 5` and check inbox/next again. New tasks arrive any time.
-You can only `done` a task you have claimed. Post progress with `node "$SWARM" room "..."`.
-─────────────────────────────────────────────
+Then loop CONTINUOUSLY (do not stop after a task):
+  inbox → next → claim <id> → DO REAL WORK in the repo (edit files, run tests)
+  → done <id> "<what you did>" → back to inbox. Nothing to do? sleep 5, recheck.
+You can only `done` a task you claimed. Post progress with: node "$SWARM" room "...".
 ```
 
-The agent reads `SWARM-AGENT.md` (full command reference) and operates autonomously.
-`swarm-cli.js` auto-detects the repo from `cd`, syncs git best-effort, and resolves the
-agent identity (saved on `join`). Everything is git-based, so it works with no server.
+Verify: `/swarm status`.
 
-Verify it joined: `/swarm status` (or `node {skillDir}/lib/swarm-cli.js status {swarmRoot}`).
+## Communication & files
 
-## Task Delegation and Splitting
-
-### Automatic distribution (default)
-
-The **lead distributes open tasks automatically every turn.** The `swarm-sync`
-hook calls `orchestrator.distribute()` when you are the lead: each open, unblocked
-task is assigned to the best-matched active agent (capability + load + priority
-scoring) and that agent receives a `task_assignment` message carrying an actionable
-work prompt. You do not need to do anything — just create tasks and add workers.
-
-Trigger it manually anytime with `/swarm delegate`
-(→ `node {skillDir}/lib/orchestrator-cli.js distribute {swarmRoot} {myAgentId}`).
-
-### Adding workers
-
-```
-/swarm agent codex backend,python       # launch a Codex worker (detached)
-/swarm agent gemini frontend,testing     # launch a Gemini worker (detached)
-```
-→ `node {skillDir}/lib/launch.js agent <provider> {swarmRoot} <caps>`.
-Worker logs: `{swarmRoot}/.swarm/.run/agent-<provider>.log`.
-Needs `CODEX_API_KEY`/`OPENAI_API_KEY` (codex) or `GEMINI_API_KEY` (gemini) in the
-environment. To test the whole loop with no API spend, set `SWARM_FAKE_LLM=1`.
-
-### Splitting big tasks
-
-```
-/swarm split <task-id> "Subtask A" "Subtask B" "Subtask C"
-```
-Parent becomes `split`; subtasks are created `open` (same priority/tags, `parent_task`
-set). The lead then auto-distributes the new subtasks on the next turn.
-
-### How an agent acts on an assignment
-
-When a `task_assignment` message targets an agent (you'll see it surfaced as
-"📨 task assignment(s) for you"):
-1. Claim/accept the task (it's already `assigned` to you).
-2. **Produce real output** — actual code, analysis, or findings. Never placeholder text.
-3. Mark done with the real result: `/swarm done "<result>"` (Claude) or
-   `##SWARM:DONE:task-uuid:<result>##` (Codex/Gemini).
-4. LLM workers write results into the task `result` field — they do NOT edit repo files.
-
-### Inter-agent messages
-
-Agents coordinate with `/swarm msg <agent> "..."` and `/swarm broadcast "..."`.
-Incoming messages are surfaced to each agent every turn (git-based, always works;
-instant via WebSocket when the server is up). A worker that needs help broadcasts a
-`help_request`; teammates respond with real answers.
-
-## Boundaries
-
-- Never auto-execute tasks without user confirmation (semi-automatic mode).
-- Never modify files outside `.swarm/` without explicit user request.
-- Never commit non-swarm files to git via swarm operations.
-- Always show team status when asked.
-- Always present escalations prominently — they block team progress.
+- **Messaging** — WebSocket (instant) when `/swarm server` is up; git YAML in `.swarm/messages/`
+  always works (one file/message = zero conflicts). Common room = shared channel everyone reads.
+- **lib/ modules** (require via `path.join(skillDir,'lib',...)`): `yaml`, `git-sync`,
+  `agent-registry`, `task-manager`, `message-bus`, `io-bus`, `hierarchy`, `orchestrator`
+  (+ `orchestrator-cli`), `actions`, `runner`, `launch`, `realtime` (+ `realtime-message-bus`),
+  `conflict-resolver`, `agent-loop`.
+- **TUI dashboard** (legacy, blocks terminal — launch in a NEW window):
+  Windows `Start-Process powershell -ArgumentList '-NoExit','-Command',"node \`"{skillDir}/dashboard/index.js\`" \`"{swarmRoot}\`""`;
+  Mac/Linux `node {skillDir}/dashboard/index.js {swarmRoot} &`.
