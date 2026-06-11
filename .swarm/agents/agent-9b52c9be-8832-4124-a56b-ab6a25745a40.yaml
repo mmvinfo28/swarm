@@ -5,5 +5,6 @@ owner: runner
 capabilities: []
 status: idle
 current_task: null
-last_seen: "2026-06-11T23:41:04.354Z"
+last_seen: "2026-06-11T23:42:52.748Z"
 joined_at: "2026-06-11T23:41:03.612Z"
+calls: 1
