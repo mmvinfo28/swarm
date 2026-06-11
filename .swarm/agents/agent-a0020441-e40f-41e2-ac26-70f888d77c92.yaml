@@ -3,8 +3,8 @@ name: Worker-78428
 provider: claude
 owner: runner
 capabilities: []
-status: working
+status: idle
 current_task: null
-last_seen: "2026-06-11T23:40:35.322Z"
+last_seen: "2026-06-11T23:41:09.865Z"
 joined_at: "2026-06-11T23:38:50.476Z"
 calls: 1

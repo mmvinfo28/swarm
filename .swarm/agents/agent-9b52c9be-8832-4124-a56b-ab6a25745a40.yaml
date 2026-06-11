@@ -1,0 +1,9 @@
+id: 9b52c9be-8832-4124-a56b-ab6a25745a40
+name: Worker-95180
+provider: claude
+owner: runner
+capabilities: []
+status: idle
+current_task: null
+last_seen: "2026-06-11T23:41:04.354Z"
+joined_at: "2026-06-11T23:41:03.612Z"
