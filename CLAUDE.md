@@ -128,5 +128,17 @@ GEMINI_API_KEY=... python adapters/gemini-wrapper.py --swarm-root /path/to/repo
 - For swarm tasks that produce static HTML, consider adding a test helper that automates this pattern.
 
 ### Git initialization
-- If the repo directory is empty (no `.git`), you must run `git init` before `swarm init`.
-- To create a GitHub remote: `gh repo create <name> --private --source=. --remote=origin --push`
+- `swarm-cli init` now runs `git init` automatically if there is no `.git`, and writes a
+  `.gitignore` for runtime state (`.swarm/.run/`, `.swarm/.server-url`, `.swarm/.stopped`,
+  `*.pid`, `*.log`). You no longer need to `git init` by hand.
+- To create a GitHub remote: `gh repo create <name> --private --source=. --remote=origin --push`.
+  On `Name already exists`, pick a new name or reuse the existing remote (`git remote add origin <url>`).
+
+### Runtime workarounds (Windows, observed in real runs)
+- **npm blocked by execution policy:** `npm.ps1` may be blocked. Use `npm.cmd test` / `npm.cmd run …`.
+- **`Start-Process` PATH bug:** duplicate `Path`/`PATH` env keys can break detached launch. Prefer
+  the `lib/launch.js` detached launcher; if verifying a built site, serve it on `http://127.0.0.1:<port>`.
+- **`file://` blocked:** the in-app browser blocks `file://`. Serve static sites over `http://127.0.0.1`.
+- **CLI `done`/`room` "timeout":** the swarm CLI now pushes git in a detached background process,
+  so commands return instantly even on a slow network — the old false-negative (task file written
+  but CLI hung/timed out) is fixed. A slow push is never a reason to re-submit or stop.

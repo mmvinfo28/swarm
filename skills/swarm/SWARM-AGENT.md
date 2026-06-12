@@ -33,6 +33,12 @@ node "$SWARM" join "Codex-Bob" backend,api,testing
 **CRITICAL: After completing a task with `done`, you MUST immediately go back to step 1.
 Do NOT stop. Do NOT exit. Do NOT wait for instructions. The loop never ends.**
 
+> `done` finishing ONE task is the #1 reason workers wrongly quit. Finishing a task is NOT
+> the end of your job — it is the trigger to fetch the next one. If `inbox`/`next` is empty,
+> `sleep 5` and check again. You stop ONLY when told "stop"/"swarm stopped". When in doubt,
+> keep looping. The CLI now returns instantly (git sync runs in the background), so a slow
+> `done`/`room` is not a reason to stop — just continue.
+
 ```bash
 # REPEAT THIS FOREVER:
 node "$SWARM" inbox        # 1. What is assigned to me? Any messages?
