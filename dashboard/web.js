@@ -140,6 +140,16 @@ function controlAction(action) {
   throw new Error('unknown action: ' + action);
 }
 
+// Resolve a worker's escalation from the panel and notify the asking agent (Bug #5).
+function resolveEscalationFromPanel(escId, decision) {
+  const al = require(path.join(__dirname, '..', 'lib', 'agent-loop'));
+  const ioBus = require(path.join(__dirname, '..', 'lib', 'io-bus'));
+  const esc = al.resolveEscalation(swarmRoot, escId, decision, 'human');
+  if (!esc) throw new Error('escalation not found');
+  try { ioBus.deliver(swarmRoot, esc.agent_id, { from: 'human', type: 'chat', content: `Decision on your escalation: ${decision}` }); } catch (_) {}
+  return esc;
+}
+
 // ─── HTML ────────────────────────────────────────────────────────────────────
 
 const HTML = `<!DOCTYPE html>
@@ -206,6 +216,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
 .esc{padding:7px 9px;border-radius:4px;margin-bottom:5px;border-left:3px solid}
 .esc-high{background:rgba(248,81,73,.08);border-color:var(--red)}.esc-medium{background:rgba(210,153,34,.08);border-color:var(--yellow)}.esc-low{background:rgba(88,166,255,.06);border-color:var(--blue)}
 .esev{font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:3px}.ebody{font-size:12px}
+.eact{display:flex;gap:4px;margin-top:6px}
+.eresp{flex:1;min-width:0;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:11px;padding:3px 6px}
+.eact button{background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer}
+.eact button:hover{border-color:var(--green);color:var(--green)}
+.eact button.appr{border-color:var(--green);color:var(--green)}
 
 /* ── Health bars ── */
 .hrow{display:flex;align-items:center;gap:8px;margin-bottom:5px}
@@ -430,9 +445,16 @@ function renderHealth(state){
   }
 
   if(escs.length){
-    html+='<div class="sh" style="margin-top:10px;color:var(--red)">Escalations ('+escs.length+')</div>';
+    html+='<div class="sh" style="margin-top:10px;color:var(--red)">Escalations — need your decision ('+escs.length+')</div>';
     for(const ec of escs){
-      html+='<div class="esc esc-'+(ec.severity||'low')+'"><div class="esev">'+e(ec.severity||'?')+'</div><div class="ebody">'+e((ec.message_content||'').slice(0,120))+'</div></div>'
+      const who=agentName(ec.agent_id,agents);
+      html+='<div class="esc esc-'+(ec.severity||'low')+'">'
+        +'<div class="esev">'+e(ec.severity||'?')+' &middot; '+e(who)+' asks</div>'
+        +'<div class="ebody">'+e(ec.message_content||'')+'</div>'
+        +'<div class="eact"><input class="eresp" id="esc-'+e(ec.id)+'" placeholder="your decision / answer…"/>'
+        +'<button onclick="doResolveEsc(\\''+e(ec.id)+'\\')">Send</button>'
+        +'<button class="appr" onclick="doResolveEsc(\\''+e(ec.id)+'\\',\\'Approved — go ahead.\\')">Approve</button></div>'
+        +'</div>'
     }
   }else{
     html+='<div style="margin-top:10px;color:var(--green);font-size:12px">&#10003; No pending escalations</div>'
@@ -518,6 +540,15 @@ function doInject(){
   fetch('/api/inject',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent:agent,text:text})})
     .then(r=>r.json()).then(()=>{document.getElementById('inj-text').value='';fetchState();})
     .catch(()=>{});
+}
+
+function doResolveEsc(id,preset){
+  const el=document.getElementById('esc-'+id);
+  const v=preset||(el?el.value.trim():'');
+  if(!v){alert('Type a decision, or click Approve.');return;}
+  fetch('/api/escalation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,decision:v})})
+    .then(r=>r.json()).then(j=>{if(j&&j.ok===false)alert('Failed: '+j.error);else fetchState();})
+    .catch(e=>alert('Failed: '+e.message));
 }
 
 function doCreateTask(){
@@ -650,6 +681,25 @@ const server = http.createServer((req, res) => {
         const r = controlAction(action);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(r));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Resolve a pending escalation (panel → worker decision).
+  if (req.url === '/api/escalation' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const { id, decision } = JSON.parse(body || '{}');
+        if (!id || !decision) throw new Error('id and decision required');
+        const esc = resolveEscalationFromPanel(id, decision);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, escalation: esc }));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: err.message }));

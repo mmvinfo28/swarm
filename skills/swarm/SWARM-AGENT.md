@@ -95,8 +95,15 @@ broadcast "<text>"            Post to the common room
 delegate                      (lead only) hand open tasks to best agents
 assign <id> <name|id>         (lead only) assign a task
 lead [name]                   Make yourself/another the lead
+escalate "<question>"         Ask the human a decision/approval (actionable — they resolve it)
+resolve <escId> "<answer>"    Answer a pending escalation
 sync                          git pull + push the shared state
 ```
+
+**Need human approval or a decision?** Run `escalate "..."` — it reaches the user as an
+actionable prompt in the dashboard. Do NOT just post the question to the room and wait; a room
+post is not an approval prompt and may never be answered. After you escalate, keep working on
+anything else you can; the answer arrives in your `inbox`.
 
 Flags: `--as "<Name>"` act as a specific agent · `--root <path>` repo location ·
 `--json` machine-readable output.
