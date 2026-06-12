@@ -28,10 +28,23 @@ CLI for non-Claude workers).
 
 ## `/swarm` (no args) = start + status
 
-1. No `.swarm/` in repo → initialize (see **Init**).
-2. `node {skillDir}/lib/launch.js stack {swarmRoot}` (server + dashboard, idempotent).
-3. Ensure a Claude lead: `node {skillDir}/lib/launch.js worker claude {swarmRoot} "<git user or Lead>" coordination,review` (first worker = lead).
-4. Report: "Swarm up. Panel http://localhost:7379. Add workers `/swarm-worker`, tasks `/task add`, stop `/swarm-stop`."
+**First-time setup (no `.swarm/` yet) — ALWAYS ask the user these three before doing anything**
+(use one AskUserQuestion with the three together; do not assume defaults):
+1. **Repo** — Private GitHub repo · Public GitHub repo · No repo (local-only)?
+2. **Lead name** — what to call the lead agent (suggest the git user name).
+3. **Features / capabilities needed** — what is the team building, and which skills
+   (e.g. frontend, backend, api, testing)? These become the lead's capabilities and seed the first tasks.
+
+Then:
+1. `node {skillDir}/lib/swarm-cli.js init --root {swarmRoot}` (creates `.swarm/`, runs `git init`, writes `.gitignore`).
+2. Repo per their choice — Private → `gh repo create <name> --private --source=. --remote=origin --push`;
+   Public → `--public`; No repo → skip (local-only). On name collision, see **Init** step 3.
+3. Start stack: `node {skillDir}/lib/launch.js stack {swarmRoot}`.
+4. Start the lead with their chosen name + capabilities (first worker = lead):
+   `node {skillDir}/lib/launch.js worker claude {swarmRoot} "<lead name>" <caps-from-features>`.
+5. Report: "Swarm up. Panel http://localhost:7379. Add workers `/swarm-worker`, tasks `/task add`, stop `/swarm-stop`."
+
+**Already initialized (`.swarm/` exists)** → skip the questions: start the stack, ensure the lead is running, show status.
 
 `/swarm status` → show status only, start nothing.
 
