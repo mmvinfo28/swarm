@@ -93,6 +93,8 @@ function createTaskFromPanel(title, priority, tags) {
   });
   // Announce on the board so idle workers wake and the lead can distribute.
   try { ioBus.postRoom(swarmRoot, 'human', `New task on the board: "${t.title}" [${t.priority}] (tags: ${(t.tags||[]).join(',')||'none'})`, 'chat'); } catch (_) {}
+  // Bug #4/#5: split + cap-route immediately instead of waiting for a lead tick.
+  try { require(path.join(__dirname, '..', 'lib', 'orchestrator')).distributeNow(swarmRoot); } catch (_) {}
   return t;
 }
 
@@ -196,7 +198,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:ui-mono
 
 /* ── Message ── */
 .msg{padding:3px 0;border-bottom:1px solid rgba(48,54,61,.4);font-size:12px;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word}.msg:last-child{border-bottom:none}
-.mt{color:var(--muted);margin-right:5px;font-size:11px}.mf{color:var(--blue)}.mto{color:var(--purple)}.marr{color:var(--border);margin:0 2px}.mbody{color:var(--text)}
+.mt{color:var(--muted);margin-right:5px;font-size:11px}.mf{color:var(--blue);font-weight:600}.mto{color:var(--purple);font-weight:600}.marr{color:var(--muted);margin:0 3px}.mbody{color:var(--text)}
+.mkind{font-size:9px;font-weight:700;text-transform:uppercase;padding:0 5px;border-radius:3px;margin-right:5px;letter-spacing:.04em}
+.mk-room{background:rgba(188,140,255,.15);color:var(--purple)}.mk-dm{background:rgba(63,185,80,.15);color:var(--green)}.mk-cast{background:rgba(227,179,65,.15);color:var(--orange)}
 
 /* ── Escalation ── */
 .esc{padding:7px 9px;border-radius:4px;margin-bottom:5px;border-left:3px solid}
@@ -335,6 +339,7 @@ function toggleCommands(show){document.getElementById('cmd-ov').classList.toggle
 document.addEventListener('keydown',ev=>{if(ev.key==='Escape')toggleCommands(false)});
 function shortId(id){return id?String(id).slice(0,8):'?'}
 function agentName(id,agents){if(!id)return'none';const a=agents.find(a=>a.id===id);return a?a.name:shortId(id)}
+function partyName(id,agents){if(!id)return'?';if(id==='human')return'human';if(id==='room')return'Common Room';if(id==='broadcast')return'everyone';if(id==='panel')return'dashboard';return agentName(id,agents)}
 
 function renderTeam(state){
   const agents=state.agents||[];
@@ -460,9 +465,15 @@ function renderFlow(state){
   if(!flow.length)return'<div class="empty">No messages yet. Inject one above &#8593;</div>';
   return flow.slice().reverse().map(m=>{
     const t=m.timestamp?new Date(m.timestamp).toLocaleTimeString():'';
-    const who=m.from==='human'?'human':agentName(m.agent,agents);
-    const dir=m.box==='room'?'<span style="color:var(--purple)">room</span>':(m.box==='in'?'<span style="color:var(--green)">in&#8594;</span>':'<span style="color:var(--blue)">&#8592;out</span>');
-    return '<div class="msg" data-box="'+(m.box||'')+'" data-agent="'+(m.agent||m.from||'')+'">'+'<span class="mt">'+e(t)+'</span> '+dir+' <span class="mf">'+e(who)+'</span>: <span class="mbody">'+e(m.content||'')+'</span></div>';
+    const isRoom=m.box==='room'||m.to==='room';
+    const isCast=m.to==='broadcast';
+    const from=partyName(m.from,agents);
+    const to=isRoom?'Common Room':partyName(m.to||m.agent,agents);
+    const kind=isRoom?'<span class="mkind mk-room">room</span>':(isCast?'<span class="mkind mk-cast">all</span>':'<span class="mkind mk-dm">dm</span>');
+    return '<div class="msg" data-box="'+(m.box||'')+'" data-agent="'+(m.agent||m.from||'')+'">'
+      +'<span class="mt">'+e(t)+'</span> '+kind
+      +'<span class="mf">'+e(from)+'</span><span class="marr">&#8594;</span><span class="mto">'+e(to)+'</span>'
+      +'<span class="mbody">: '+e(m.content||'')+'</span></div>';
   }).join('')
 }
 

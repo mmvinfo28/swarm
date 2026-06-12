@@ -66,15 +66,20 @@ All detached + idempotent; logs in `{swarmRoot}/.swarm/.run/`. Run with a short 
 
 ## Init (`/swarm init`)
 
-1. Create `.swarm/` dirs + `config.yaml` (`project`, `created_at`, `transport: git`, `sync_interval: 15`, `max_tasks_per_agent: 3`) + `hierarchy.yaml` (this agent as lead).
-2. Register this agent; git add + commit `.swarm/`.
+1. `swarm-cli init` creates `.swarm/` dirs + `config.yaml` (`project`, `created_at`,
+   `transport: git`, `sync_interval: 15`, `max_tasks_per_agent: 3`) + `hierarchy.yaml`
+   (this agent as lead). It also **runs `git init` if needed** and writes a **`.gitignore`**
+   excluding runtime state (`.swarm/.run/`, `.swarm/.server-url`, `.swarm/.stopped`, `*.pid`, `*.log`).
+2. Register this agent; `git add -A && git commit -m "swarm: init"`.
 3. **Outward-facing** — to sync across machines, confirm repo name + visibility (default **private**), then:
    ```bash
-   git rev-parse --is-inside-work-tree || git init
-   git add -A && git commit -m "swarm: init" || true
    gh repo create <name> --private --source=. --remote=origin --push   # needs gh auth
    ```
-   No `gh`? Tell the user (`gh auth login`); swarm still works local-only.
+   - **Name taken** (`Name already exists on this account`)? Don't abort — offer the user:
+     pick a new name, OR reuse the existing repo
+     (`git remote add origin <url> && git pull --rebase origin main && git push -u origin HEAD`),
+     OR push under a different org. Re-run with their choice.
+   - No `gh` / not authed? Tell the user (`gh auth login`); swarm still works local-only.
 4. Offer: "`/swarm` to start, `/swarm-worker claude \"Alice\" coordination` to add workers."
 
 ## Modify (`/swarm modify`)
