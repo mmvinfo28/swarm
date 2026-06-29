@@ -20,6 +20,10 @@ function findSwarmRoot(dir) {
 
 const PORT      = parseInt(process.argv[2] || process.env.SWARM_DASH_PORT || '7379', 10);
 const swarmRoot = process.argv[3] || process.env.SWARM_ROOT || findSwarmRoot(process.cwd()) || process.cwd();
+// Bind host. Default localhost-only (safe). Set SWARM_DASH_HOST=0.0.0.0 to expose on
+// the LAN so a phone / another laptop on the same Wi-Fi can reach it. NO AUTH — only
+// do this on a trusted network.
+const HOST      = process.env.SWARM_DASH_HOST || '127.0.0.1';
 
 if (!fs.existsSync(path.join(swarmRoot, '.swarm'))) {
   console.error(`[swarm-dash] No .swarm/ in: ${swarmRoot}`);
@@ -740,8 +744,9 @@ server.on('error', err => {
   process.exit(1);
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, HOST, () => {
   console.log(`[swarm-dash] Dashboard running at http://localhost:${PORT}`);
+  if (HOST === '0.0.0.0') console.log(`[swarm-dash] LAN-exposed (SWARM_DASH_HOST=0.0.0.0) — reachable at http://<this-machine-ip>:${PORT} (no auth; trusted network only)`);
   console.log(`[swarm-dash] Swarm root: ${swarmRoot}`);
   console.log('[swarm-dash] Press Ctrl+C to stop. Auto-refreshes every 3s.');
 });
