@@ -54,6 +54,7 @@ $dirs = @(
     $PluginDir,
     (Join-Path $PluginDir "lib"),
     (Join-Path $PluginDir "lib" "transports"),
+    (Join-Path $PluginDir "lib" "drivers"),
     (Join-Path $PluginDir "hooks"),
     (Join-Path $PluginDir "skills" "swarm" "references"),
     (Join-Path $PluginDir "dashboard"),
@@ -76,10 +77,24 @@ $fileMappings = @(
     @{ src = "lib\agent-registry.js";      dest = "lib\agent-registry.js" },
     @{ src = "lib\task-manager.js";        dest = "lib\task-manager.js" },
     @{ src = "lib\message-bus.js";         dest = "lib\message-bus.js" },
+    @{ src = "lib\io-bus.js";              dest = "lib\io-bus.js" },
     @{ src = "lib\hierarchy.js";           dest = "lib\hierarchy.js" },
+    @{ src = "lib\orchestrator.js";        dest = "lib\orchestrator.js" },
+    @{ src = "lib\orchestrator-cli.js";    dest = "lib\orchestrator-cli.js" },
+    @{ src = "lib\actions.js";             dest = "lib\actions.js" },
+    @{ src = "lib\runner.js";              dest = "lib\runner.js" },
+    @{ src = "lib\launch.js";              dest = "lib\launch.js" },
+    @{ src = "lib\swarm-cli.js";           dest = "lib\swarm-cli.js" },
+    @{ src = "lib\server.js";              dest = "lib\server.js" },
     @{ src = "lib\agent-loop.js";          dest = "lib\agent-loop.js" },
     @{ src = "lib\realtime.js";            dest = "lib\realtime.js" },
     @{ src = "lib\realtime-message-bus.js"; dest = "lib\realtime-message-bus.js" },
+    # Drivers (LLM backends — required by runner.js)
+    @{ src = "lib\drivers\index.js";       dest = "lib\drivers\index.js" },
+    @{ src = "lib\drivers\claude.js";      dest = "lib\drivers\claude.js" },
+    @{ src = "lib\drivers\codex.js";       dest = "lib\drivers\codex.js" },
+    @{ src = "lib\drivers\gemini.js";      dest = "lib\drivers\gemini.js" },
+    @{ src = "lib\drivers\fake.js";        dest = "lib\drivers\fake.js" },
     # Transports
     @{ src = "lib\transports\base.js";     dest = "lib\transports\base.js" },
     @{ src = "lib\transports\git.js";      dest = "lib\transports\git.js" },
@@ -89,6 +104,7 @@ $fileMappings = @(
     @{ src = "hooks\swarm-config.js";      dest = "hooks\swarm-config.js" },
     @{ src = "hooks\swarm-init.js";        dest = "hooks\swarm-init.js" },
     @{ src = "hooks\swarm-sync.js";        dest = "hooks\swarm-sync.js" },
+    @{ src = "hooks\swarm-file-guard.js";  dest = "hooks\swarm-file-guard.js" },
     @{ src = "hooks\package.json";         dest = "hooks\package.json" },
     # Skill
     @{ src = "skills\swarm\SKILL.md";      dest = "skills\swarm\SKILL.md" },
@@ -97,7 +113,8 @@ $fileMappings = @(
     # Plugin metadata
     @{ src = ".claude-plugin\plugin.json";      dest = ".claude-plugin\plugin.json" },
     @{ src = ".claude-plugin\marketplace.json"; dest = ".claude-plugin\marketplace.json" },
-    # Dashboard
+    # Dashboard (web.js = live HTTP panel; index.js = legacy TUI)
+    @{ src = "dashboard\web.js";           dest = "dashboard\web.js" },
     @{ src = "dashboard\index.js";         dest = "dashboard\index.js" },
     # Adapters
     @{ src = "adapters\codex-wrapper.py";       dest = "adapters\codex-wrapper.py" },
