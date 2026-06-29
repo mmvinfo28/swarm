@@ -15,8 +15,7 @@ skil/
 │   ├── task-manager.js           # Task CRUD + scoring + conflict-free claims
 │   ├── message-bus.js            # Messaging + auto-communication protocol
 │   ├── hierarchy.js              # Team structure, lead election
-│   ├── conflict-resolver.js      # First-push-wins race resolution
-│   ├── agent-loop.js             # Autonomous conversation + escalation engine
+│   ├── agent-loop.js             # Escalation engine (detect + queue + human format)
 │   ├── realtime.js               # WebSocket server/client (RFC 6455, zero deps)
 │   ├── realtime-message-bus.js   # Persistent WS connection wrapper
 │   └── transports/               # Pluggable transport layer
@@ -73,9 +72,11 @@ skil/
 ### Run tests
 ```bash
 cd skil
-node -e "require('./lib/yaml')"        # verify modules load
-node -e "require('./lib/agent-loop')"   # verify full stack
+npm test          # node --test — real suite in test/ (zero deps)
 ```
+Covers: conflict-free claims (incl. a real two-clone git race), file-ownership guard,
+config read, fence-safe markers, non-destructive stop, dependency auto-unblock,
+graceful shutdown, plan-approval. The git race test self-skips if git isn't installed.
 
 ### Run dashboard
 ```bash

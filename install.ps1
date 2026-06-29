@@ -77,7 +77,6 @@ $fileMappings = @(
     @{ src = "lib\task-manager.js";        dest = "lib\task-manager.js" },
     @{ src = "lib\message-bus.js";         dest = "lib\message-bus.js" },
     @{ src = "lib\hierarchy.js";           dest = "lib\hierarchy.js" },
-    @{ src = "lib\conflict-resolver.js";   dest = "lib\conflict-resolver.js" },
     @{ src = "lib\agent-loop.js";          dest = "lib\agent-loop.js" },
     @{ src = "lib\realtime.js";            dest = "lib\realtime.js" },
     @{ src = "lib\realtime-message-bus.js"; dest = "lib\realtime-message-bus.js" },

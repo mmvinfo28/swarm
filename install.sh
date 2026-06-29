@@ -77,7 +77,7 @@ COPIED=0
 
 # Core lib
 for f in yaml.js git-sync.js agent-registry.js task-manager.js message-bus.js \
-         hierarchy.js conflict-resolver.js agent-loop.js realtime.js realtime-message-bus.js; do
+         hierarchy.js agent-loop.js realtime.js realtime-message-bus.js; do
   copy_if_exists "lib/$f" "lib/$f" && COPIED=$((COPIED + 1))
 done
 
