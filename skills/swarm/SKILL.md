@@ -175,7 +175,7 @@ Verify: `/swarm status`.
 - **lib/ modules** (require via `path.join(skillDir,'lib',...)`): `yaml`, `git-sync`,
   `agent-registry`, `task-manager`, `message-bus`, `io-bus`, `hierarchy`, `orchestrator`
   (+ `orchestrator-cli`), `actions`, `runner`, `launch`, `realtime` (+ `realtime-message-bus`),
-  `conflict-resolver`, `agent-loop`.
+  `agent-loop` (escalations), `drivers/` (claude/codex/gemini/fake).
 - **TUI dashboard** (legacy, blocks terminal — launch in a NEW window):
   Windows `Start-Process powershell -ArgumentList '-NoExit','-Command',"node \`"{skillDir}/dashboard/index.js\`" \`"{swarmRoot}\`""`;
   Mac/Linux `node {skillDir}/dashboard/index.js {swarmRoot} &`.

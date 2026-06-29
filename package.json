@@ -1,0 +1,9 @@
+{
+  "name": "swarm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-agent orchestration plugin — core library (zero runtime deps).",
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -53,6 +53,7 @@ fi
 # --- Create directory structure ---
 
 mkdir -p "$PLUGIN_DIR/lib/transports"
+mkdir -p "$PLUGIN_DIR/lib/drivers"
 mkdir -p "$PLUGIN_DIR/hooks"
 mkdir -p "$PLUGIN_DIR/skills/swarm/references"
 mkdir -p "$PLUGIN_DIR/dashboard"
@@ -76,9 +77,15 @@ copy_if_exists() {
 COPIED=0
 
 # Core lib
-for f in yaml.js git-sync.js agent-registry.js task-manager.js message-bus.js \
-         hierarchy.js conflict-resolver.js agent-loop.js realtime.js realtime-message-bus.js; do
+for f in yaml.js git-sync.js agent-registry.js task-manager.js message-bus.js io-bus.js \
+         hierarchy.js orchestrator.js orchestrator-cli.js actions.js runner.js launch.js \
+         swarm-cli.js server.js agent-loop.js realtime.js realtime-message-bus.js; do
   copy_if_exists "lib/$f" "lib/$f" && COPIED=$((COPIED + 1))
+done
+
+# Drivers (LLM backends — required by runner.js)
+for f in index.js claude.js codex.js gemini.js fake.js; do
+  copy_if_exists "lib/drivers/$f" "lib/drivers/$f" && COPIED=$((COPIED + 1))
 done
 
 # Transports
@@ -87,7 +94,7 @@ for f in base.js git.js http.js index.js; do
 done
 
 # Hooks
-for f in swarm-config.js swarm-init.js swarm-sync.js package.json; do
+for f in swarm-config.js swarm-init.js swarm-sync.js swarm-file-guard.js package.json; do
   copy_if_exists "hooks/$f" "hooks/$f" && COPIED=$((COPIED + 1))
 done
 
@@ -100,7 +107,8 @@ copy_if_exists "skills/swarm/references/task-routing.md" "skills/swarm/reference
 copy_if_exists ".claude-plugin/plugin.json" ".claude-plugin/plugin.json" && COPIED=$((COPIED + 1))
 copy_if_exists ".claude-plugin/marketplace.json" ".claude-plugin/marketplace.json" && COPIED=$((COPIED + 1))
 
-# Dashboard
+# Dashboard (web.js = live HTTP panel launched by launch.js; index.js = legacy TUI)
+copy_if_exists "dashboard/web.js" "dashboard/web.js" && COPIED=$((COPIED + 1))
 copy_if_exists "dashboard/index.js" "dashboard/index.js" && COPIED=$((COPIED + 1))
 
 # Adapters
