@@ -31,6 +31,18 @@ test('maxTasksPerAgent reads config.yaml, falls back to 3', () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('syncIntervalSeconds reads config.yaml, falls back to 30', () => {
+  const root = mkRoot();
+  assert.strictEqual(tm.syncIntervalSeconds(root), 30, 'no config → default 30');
+  fs.writeFileSync(path.join(root, '.swarm', 'config.yaml'),
+    yaml.serialize({ sync_interval: 15 }) + '\n', 'utf-8');
+  assert.strictEqual(tm.syncIntervalSeconds(root), 15, 'config value honored');
+  fs.writeFileSync(path.join(root, '.swarm', 'config.yaml'),
+    yaml.serialize({ sync_interval: 0 }) + '\n', 'utf-8');
+  assert.strictEqual(tm.syncIntervalSeconds(root), 30, 'invalid (<=0) → default');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 // ── 1.4 markers in fences ─────────────────────────────────────────────────────
 test('a real marker fires; the same marker inside a code fence does not', () => {
   const real = actions.parseActions('On it. ##SWARM:CLAIM:task-1##');
