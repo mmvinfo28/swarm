@@ -78,6 +78,11 @@ function readState() {
     state.flow = ioBus.recentFlow(swarmRoot, 40);
   } catch (_) { state.flow = []; }
 
+  // Claude CLI auth health — drives the red banner (workers can't reason when this is down).
+  try {
+    state.auth = require(path.join(__dirname, '..', 'lib', 'auth-check')).status();
+  } catch (_) { state.auth = { ok: true }; }
+
   return state;
 }
 
@@ -419,6 +424,13 @@ function renderHealth(state){
   const tasks=state.tasks||[];
   const escs=state.escalations||[];
   let html='';
+
+  if(state.auth&&state.auth.ok===false){
+    html+='<div class="esc esc-critical" style="margin-bottom:8px">'
+      +'<div class="esev">CLAUDE LOGIN NEEDED</div>'
+      +'<div class="ebody">'+e(state.auth.reason||'Claude CLI not logged in.')+' Workers are paused and resume automatically after login.</div>'
+      +'</div>';
+  }
 
   if(agents.length){
     const total=agents.length;

@@ -26,6 +26,30 @@ skill output). `{swarmRoot}` = the repo containing `.swarm/`.
 need the 4 above + the dashboard at http://localhost:7379 (**⚙ Commands** panel there lists the
 CLI for non-Claude workers).
 
+## No API key — auth health (read this when workers idle/fail)
+
+Claude workers reason via `claude -p` on the user's plan. If the CLI login is expired
+(`~/.claude/.credentials.json` past `expiresAt`), workers do NOT hammer 401s: the runner
+preflights auth, pauses the worker (`status: error`, `error_reason: auth`), raises ONE
+critical escalation, and the dashboard shows a red **CLAUDE LOGIN NEEDED** banner.
+Fix = user opens a terminal, runs `claude`, types `/login`. Workers **auto-resume** on the
+next tick — no restart needed. Check: `node {skillDir}/lib/auth-check.js` logic via
+`require('.../lib/auth-check').status()`, or just look at the dashboard banner.
+
+## Communication (auto — nothing to configure)
+
+- **Same machine** (default): files in `.swarm/` + WS server → instant.
+- **Same wifi**: start with `SWARM_DASH_HOST=0.0.0.0` → dashboard reachable from phones/
+  laptops at `http://<lan-ip>:7379` (launch prints the URL; no auth — trusted networks only).
+- **Remote machines**: git sync via the GitHub remote — automatic when `origin` exists;
+  each machine runs `/swarm` in its clone.
+
+## Usage limits (cost safety)
+
+Every worker gets an LLM-call budget (`default_max_calls: 30` in config.yaml; per-agent
+override = dashboard "budget" field; 0 = unlimited). At the cap the worker auto-pauses and
+broadcasts. Idle ticks never call the LLM. Resume from the dashboard (resets the counter).
+
 ## `/swarm` (no args) = start + status
 
 **First-time setup (no `.swarm/` yet) — ALWAYS ask the user these three before doing anything**
